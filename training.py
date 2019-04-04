@@ -8,27 +8,33 @@ from preprocess import get_transform
 import models
 import numpy as np
 import matplotlib.pyplot as plt
-
+import torch.optim as optim
+from utils.model_utils import accuracy, test_model, xavier_initialize_weights, normal_initialize_biases, constant_initialize_bias
 cudnn.benchmark = True
 
 class Config():
 
     def __init__(self):
         self.dataset = 'fashionmnist'
-        self.n_epochs = 32
+        self.n_epochs = 15
         self.model_name = 'lenet'
         self.transform = None
         self.workers = 4
         self.batch_size = 128
         self.input_size = (28, 28)
+        self.print_interval = 75
+torch.cuda.set_device(0)
 
 c = Config()
 
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
 model = model(**model_config)
+model.apply(xavier_initialize_weights)
+model.apply(normal_initialize_biases)
+model.cuda()
 
-optimizer = torch.optim.Adam(model.parameters())
+optimizer = optim.Adam(model.parameters())
 # criterion = nn.NLLLoss()
 criterion = nn.CrossEntropyLoss()
 
@@ -48,48 +54,40 @@ test_loader = torch.utils.data.DataLoader(
         batch_size=c.batch_size, shuffle=True,
         num_workers=c.workers, pin_memory=True)
 
-model.cuda()
-
-print(model)
-for i ,p in enumerate(model.parameters()):
-    if i==0:
-        print(p)
 
 lossval = np.array([])
 
+
+model.eval()
 for i in range(c.n_epochs):
     # if i>0:
     #     break
+    accuracy_ = 0
     for iter, (inputs, target) in enumerate(train_loader):
         inputs = inputs.cuda()
-        # print(inputs[0])
-        # print(inputs.size())
-        # exit()
+        # inputs = inputs.view(-1,28*28)
+
         target = target.cuda()
 
         output = model(inputs)
 
         loss = criterion(output, target)
 
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
 
         lossval_ = loss.cpu().data.numpy()
-        if iter %100 ==0:
-            print('Loss %.3f' % lossval_)
-            print(output[0])
-            print()
+
+        accuracy_ = accuracy(output, target)[0]
+
+        if iter % c.print_interval ==0:
+            print('Epoch %d | Train Loss %.3f | Acc %.2f' % (i+1, lossval_, accuracy_))
+
         lossval = np.hstack([lossval, lossval_])
+    print('***********************************************')
 
-
-        # print()
-
-    print('\n\n\nLoss after epoch %d: %.2f \n\n\n' % (i+1, lossval_))
-
-for i ,p in enumerate(model.parameters()):
-    if i==0:
-        print(p)
-
+test_model(test_loader, model)
 plt.figure()
 plt.plot(lossval)
 plt.grid()

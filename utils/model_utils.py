@@ -1,7 +1,7 @@
 import torch
 import torchvision
-
-import sklearn.cluster.k_means
+import torch.nn as nn
+# import sklearn.cluster.k_means
 from sklearn.cluster import k_means
 import numpy as np
 
@@ -22,7 +22,51 @@ def quantizer_levels_from_wts(model, n_levels):
     return k_means(params.reshape(-1, 1), n_levels)
 
 
+def accuracy(output, target, topk=(1,)):
+    """Computes the precision@k for the specified values of k"""
+    maxk = max(topk)
+    batch_size = target.size(0)
+
+    _, pred = output.float().topk(maxk, 1, True, True)
+    pred = pred.t()
+    correct = pred.eq(target.view(1, -1).expand_as(pred))
+
+    res = []
+    for k in topk:
+        correct_k = correct[:k].view(-1).float().sum(0)
+        res.append(correct_k.mul_(100.0 / batch_size))
+    return res
 
 
+def test_model(data_loader, model):
+    model.eval()
+    n_test = 0.
+    n_correct = 0.
+    for iter, (inputs, target) in enumerate(data_loader):
+        n_batch = inputs.size()[0]
+
+        inputs = inputs.cuda()
+        target = target.cuda()
+        output = model(inputs)
+
+        n_correct += accuracy(output, target)[0].cpu().numpy() * n_batch/100.
+        n_test += n_batch
+
+    test_accuracy= n_correct/n_test
+
+    print('Test Accuracy %.1f', test_accuracy)
+
+    return test_accuracy
 
 
+def xavier_initialize_weights(network):
+    if type(network)==nn.Linear or type(network)==nn.Conv2d:
+        nn.init.xavier_uniform_(network.weight)
+
+def normal_initialize_biases(network):
+    if type(network)==nn.Linear or type(network)==nn.Conv2d:
+        nn.init.normal_(network.bias, std=.1)
+
+def constant_initialize_bias(network):
+    if type(network)==nn.Linear or type(network)==nn.Conv2d:
+        nn.init.constant_(network.bias, val=.001)

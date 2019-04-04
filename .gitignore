@@ -1,0 +1,5 @@
+# ignore all . folders but include . files
+.*/
+
+models/__pycache__/
+utils/__pycache__/
