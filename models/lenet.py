@@ -25,7 +25,6 @@ class Lenet5(nn.Module):
             nn.Dropout(0.5),
             nn.Linear(1024, 10),
             # nn.Linear(28*28, 10),
-            nn.LogSoftmax(dim=1)
         )
 
     def forward(self, x):

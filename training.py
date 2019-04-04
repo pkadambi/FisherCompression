@@ -17,7 +17,7 @@ class Config():
     def __init__(self):
         self.dataset = 'fashionmnist'
         self.n_epochs = 15
-        self.model_name = 'lenet'
+        self.model_name = 'lenet_binary'
         self.transform = None
         self.workers = 4
         self.batch_size = 128
