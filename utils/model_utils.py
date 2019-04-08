@@ -4,7 +4,10 @@ import torch.nn as nn
 # import sklearn.cluster.k_means
 from sklearn.cluster import k_means
 import numpy as np
-
+import logging.config
+from bokeh.io import output_file, save, show
+from bokeh.plotting import figure
+from bokeh.layouts import column
 def quantizer_levels_from_wts(model, n_levels):
     """
     This function takes in a model and tries to find the levels of the quantizer by performing k-means on the weights
@@ -37,11 +40,46 @@ def accuracy(output, target, topk=(1,)):
         res.append(correct_k.mul_(100.0 / batch_size))
     return res
 
+__optimizers = {
+    'SGD': torch.optim.SGD,
+    'ASGD': torch.optim.ASGD,
+    'Adam': torch.optim.Adam,
+    'Adamax': torch.optim.Adamax,
+    'Adagrad': torch.optim.Adagrad,
+    'Adadelta': torch.optim.Adadelta,
+    'Rprop': torch.optim.Rprop,
+    'RMSprop': torch.optim.RMSprop
+}
+def adjust_optimizer(optimizer, epoch, config):
+    """Reconfigures the optimizer according to epoch and config dict"""
+    def modify_optimizer(optimizer, setting):
+        if 'optimizer' in setting:
+            optimizer = __optimizers[setting['optimizer']](
+                optimizer.param_groups)
+            logging.debug('OPTIMIZER - setting method = %s' %
+                          setting['optimizer'])
+        for param_group in optimizer.param_groups:
+            for key in param_group.keys():
+                if key in setting:
+                    logging.debug('OPTIMIZER - setting %s = %s' %
+                                  (key, setting[key]))
+                    param_group[key] = setting[key]
+        return optimizer
 
-def test_model(data_loader, model):
+    if callable(config):
+        optimizer = modify_optimizer(optimizer, config(epoch))
+    else:
+        for e in range(epoch + 1):  # run over all epochs - sticky setting
+            if e in config:
+                optimizer = modify_optimizer(optimizer, config[e])
+
+    return optimizer
+
+def test_model(data_loader, model, criterion,printing=True):
     model.eval()
     n_test = 0.
     n_correct = 0.
+    loss = 0.
     for iter, (inputs, target) in enumerate(data_loader):
         n_batch = inputs.size()[0]
 
@@ -49,14 +87,18 @@ def test_model(data_loader, model):
         target = target.cuda()
         output = model(inputs)
 
+        loss += criterion(output, target).item()
         n_correct += accuracy(output, target)[0].cpu().numpy() * n_batch/100.
         n_test += n_batch
 
-    test_accuracy= n_correct/n_test
+    test_accuracy= 100*n_correct/n_test
+    test_loss = 128*loss/n_test
 
-    print('Test Accuracy %.1f', test_accuracy)
+    if printing:
+        print('Test Accuracy %.3f'% test_accuracy)
+        print('Test Loss %.3f'% test_loss)
 
-    return test_accuracy
+    return test_loss, test_accuracy
 
 
 def xavier_initialize_weights(network):

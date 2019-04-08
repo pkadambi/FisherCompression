@@ -24,7 +24,7 @@ class BinaryLenet(nn.Module):
             nn.Dropout(0.5),
             bnn.BinarizeLinear(1024, 10),
             # nn.Linear(28*28, 10),
-            nn.LogSoftmax(dim=1)
+            # nn.LogSoftmax(dim=1)
         )
 
     def forward(self, x):
@@ -36,8 +36,8 @@ class BinaryLenet(nn.Module):
 
 
 
-def lenet(**kwargs):
-    return Lenet5()
+def lenet_binary(**kwargs):
+    return BinaryLenet()
 
 
 
