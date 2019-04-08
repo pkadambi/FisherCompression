@@ -13,7 +13,8 @@ class ResnetCifar10Config():
         self.transform = None
         self.workers = 4
         self.batch_size = 128
-        self.input_size = (3, 32, 28)
+        self.input_size = None
+        # self.input_size = (3, 32, 28)
         self.print_interval = 75
 
 

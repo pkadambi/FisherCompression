@@ -24,8 +24,8 @@ optimizer = optim.Adam(model.parameters(), lr = .1)
 # criterion = nn.NLLLoss()
 criterion = nn.CrossEntropyLoss()
 
-transforms = { 'train': get_transform(name = c.dataset, augment=True),
-               'test': get_transform(name = c.dataset, augment=False)}
+transforms = { 'train': get_transform(name = c.dataset, input_size = c.input_size, augment=True),
+               'eval': get_transform(name = c.dataset, input_size = c.input_size, augment=False)}
 
 train_data = get_dataset(c.dataset, 'train', transform = transforms['train'])
 # train_test_split(train_data.data, train_data.targets, test_size = .08333, train_size =1-.08333 , stratify=True)
@@ -36,7 +36,7 @@ train_loader = torch.utils.data.DataLoader(
         num_workers=c.workers, pin_memory=True)
 
 
-test_data= get_dataset(c.dataset, 'test', transform = transforms['test'])
+test_data= get_dataset(c.dataset, 'test', transform = transforms['eval'])
 test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=c.batch_size, shuffle=True,
@@ -46,8 +46,11 @@ test_loader = torch.utils.data.DataLoader(
 
 lossval = np.array([])
 
-model.train()
+regime = getattr(model, 'regime')
+
 for epoch in range(c.n_epochs):
+    optimizer = adjust_optimizer(optimizer, epoch, regime)
+    model.train()
 
     for iter, (inputs, target) in enumerate(train_loader):
 

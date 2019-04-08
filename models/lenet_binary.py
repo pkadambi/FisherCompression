@@ -21,7 +21,7 @@ class BinaryLenet(nn.Module):
         self.FC = nn.Sequential(
             bnn.BinarizeLinear(7*7*50, 1024),
             nn.ReLU(),
-            nn.Dropout(0.5),
+            # nn.Dropout(0.5),
             bnn.BinarizeLinear(1024, 10),
             # nn.Linear(28*28, 10),
             # nn.LogSoftmax(dim=1)

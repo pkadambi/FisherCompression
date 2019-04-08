@@ -54,7 +54,7 @@ test_loader = torch.utils.data.DataLoader(
 lossval = np.array([])
 
 
-model.eval()
+model.train()
 for epoch in range(c.n_epochs):
     # if i>0:
     #     break
