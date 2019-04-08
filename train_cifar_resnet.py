@@ -36,7 +36,7 @@ train_loader = torch.utils.data.DataLoader(
         num_workers=c.workers, pin_memory=True)
 
 
-x_train, x_test, y_train, y_test = test_data= get_dataset(c.dataset, 'test', transform = transforms['test'])
+test_data= get_dataset(c.dataset, 'test', transform = transforms['test'])
 test_loader = torch.utils.data.DataLoader(
         test_data,
         batch_size=c.batch_size, shuffle=True,
@@ -46,8 +46,7 @@ test_loader = torch.utils.data.DataLoader(
 
 lossval = np.array([])
 
-
-model.eval()
+model.train()
 for epoch in range(c.n_epochs):
 
     for iter, (inputs, target) in enumerate(train_loader):
