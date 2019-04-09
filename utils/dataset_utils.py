@@ -22,7 +22,7 @@ class ResnetConfig():
         if binary:
             self.model_name += '_binary'
 
-        self.model_savepath = './checkpoints/'+self.model_name+'/'+self.dataset
+        self.model_savepath = './checkpoints/'+self.model_name+'/'+self.dataset+'/'
 
 
 class LenetFashionMNISTConfig():
@@ -36,14 +36,15 @@ class LenetFashionMNISTConfig():
         self.input_size = (28, 28)
         self.print_interval = 75
         self.USE_FISHER_REG = USE_FISHER
-        self.n_fisher_epochs= 0
+        self.n_fisher_epochs = n_fisher_epochs
+        self.n_fisher_epochs= n_fisher_epochs
         self.model_name = 'lenet'
         self.gamma = gamma
 
         if binary:
             self.model_name += '_binary'
 
-        self.model_savepath = './checkpoints/'+self.model_name+'/'+self.dataset
+        self.model_savepath = './checkpoints/'+self.model_name+'/'+self.dataset+'/'
 
 
 def generate_validation_split(dataset, validation_split):
