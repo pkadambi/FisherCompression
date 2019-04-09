@@ -42,8 +42,8 @@ class BinaryLenet(nn.Module):
         )
         self.regime = {
             0: {'optimizer': 'Adam', 'lr': 1e-3},
-            50: {'lr': 5e-6,'weight_decay': 0},
-            50: {'lr': 1e-7}
+            # 50: {'lr': 5e-6,'weight_decay': 0},
+            # 50: {'lr': 1e-7}
         }
         # self.regime = {
         #     0: {'optimizer': 'Adam', 'lr': 5e-3},

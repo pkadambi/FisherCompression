@@ -12,14 +12,23 @@ cudnn.benchmark = True
 
 torch.cuda.set_device(0)
 
-c = LenetFashionMNISTConfig(n_epochs=100, USE_FISHER=True, n_fisher_epochs=10)
-# c = ResnetConfig(n_epochs=50, dataset='fashionmnist')
+#-----------------------------------------------------------------------------------------------------------------------
+#
+#                           CONFIGURATION
+#
+# c = LenetFashionMNISTConfig(n_epochs=100, USE_FISHER=True, n_fisher_epochs=15, TRAIN_FROM_SCRATCH=False, gamma=.1)
+# c.print_interval = 50
 
-c.print_interval = 50
+c = ResnetConfig(n_epochs=300, dataset='cifar10', USE_FISHER = True, TRAIN_FROM_SCRATCH = True, n_fisher_epochs=30)
+c.print_interval = 25
+#
+#-----------------------------------------------------------------------------------------------------------------------
+
+
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
 MODEL_SAVEPATH = c.model_savepath + 'checkpoint.pth'
-TRAIN_FROM_SCRATCH = False
+
 model = model(**model_config)
 # model.apply(xavier_initialize_weights)
 # model.apply(normal_initialize_biases)
@@ -28,7 +37,11 @@ model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.CrossEntropyLoss()
 
-transforms = { 'train': get_transform(name = c.dataset, augment=False),
+AUGMENT_TRAIN = False
+if 'cifar' in c.dataset:
+    AUGMENT_TRAIN = True
+
+transforms = { 'train': get_transform(name = c.dataset, augment=AUGMENT_TRAIN),
 
                'test': get_transform(name = c.dataset, augment=False)}
 
@@ -171,7 +184,6 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     test_acc = np.array([])
     tr_acc = np.array([])
     n_iters = 0
-    c.gamma = .1
 
     if load_model:
         checkpoint = torch.load(MODEL_SAVEPATH)
@@ -179,7 +191,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         best_epoch = checkpoint['epoch']
         best_loss = checkpoint['loss']
-        test_loss, test_acc_ = test_model(test_loader, model, criterion, printing=False)
+        test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
         print('###############################')
         print('#                             #')
         print('#  LOADING PRETRAINED MODEL   #')
@@ -188,7 +200,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
         print('###############################')
         print('#        LOADED MODEL         #')
-        print('#        TEST ACC: %.3f       #' % (test_acc_))
+        print('#        TEST ACC: %.3f       #' % (ste_testacc))
         print('#                             #')
         print('###############################')
 
@@ -297,8 +309,10 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
     best_acc = np.max(valid_acc)
 
-    #add the best epoch number to the previous best epoch
-    best_epoch = np.argwhere(valid_acc == best_acc) + 1 + best_epoch
+    #compute the best epoch (ie TOTAL best, best_ste+best_fisher)
+    best_epoch_total = np.argwhere(valid_acc == best_acc) + 1 + best_epoch
+
+    best_epoch_fisher = np.argwhere(valid_acc == best_acc) + 1
 
     print('-----------------F-I-S-H-E-R---------------------')
     print('-------------FINISHED FISHER TRAINING------------')
@@ -306,19 +320,26 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     print('End Validation Acc %.3f | End Epoch %d' % (valid_acc[c.n_fisher_epochs - 1],  n_tot_epochs))
     print('End TEST Acc %.3f | End Epoch %d\n' % (test_acc[c.n_fisher_epochs - 1], n_tot_epochs))
 
-    print('--------------BEST FISHER-----------------')
-    print('----------Results for BEST EPOCH----------')
-    print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[c.n_fisher_epochs - 1], best_epoch))
-    print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[c.n_fisher_epochs - 1], best_epoch))
+    print('------------------BEST FISHER--------------------')
+    print('--------------Results for BEST EPOCH-------------')
+    print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[best_epoch_fisher - 1], best_epoch_total))
+    print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch_fisher - 1], best_epoch_total))
+    print('Best FISHER Epoch %d' % (best_epoch_fisher ))
 
-if TRAIN_FROM_SCRATCH:
+    fisher_testacc = max(test_acc[c.n_fisher_epochs - 1], test_acc[best_epoch_fisher - 1])
+    return ste_testacc, fisher_testacc
+
+if c.TRAIN_FROM_SCRATCH:
     train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH)
 
 
 if c.USE_FISHER_REG:
-    MODEL_SAVEPATH = './checkpoints/lenet_binary_gold/fashionmnist/checkpoint.pth'
-    train_fisher(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, load_model = True)
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'
+    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_gold/'+c.dataset+'/checkpoint.pth'
+    ste_testacc, fisher_testacc = train_fisher(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, load_model = True)
 
+print('STE ACCURACY:\t %.3f', ste_testacc)
+print('FISHER+STE ACCURACY:\t %.3f', fisher_testacc)
 
 plt.show()
 
