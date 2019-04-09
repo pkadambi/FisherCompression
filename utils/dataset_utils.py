@@ -22,6 +22,7 @@ class ResnetConfig():
         self.print_interval = 75
         self.model_name = 'resnet'
         self.gamma = gamma
+        self.AUGMENT_TRAIN = True
         if binary:
             self.model_name += '_binary'
 
@@ -44,7 +45,7 @@ class LenetFashionMNISTConfig():
         self.n_fisher_epochs= n_fisher_epochs
         self.model_name = 'lenet'
         self.gamma = gamma
-
+        self.AUGMENT_TRAIN = False
         if binary:
             self.model_name += '_binary'
 

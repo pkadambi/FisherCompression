@@ -37,11 +37,10 @@ model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 criterion = nn.CrossEntropyLoss()
 
-AUGMENT_TRAIN = False
 if 'cifar' in c.dataset:
     AUGMENT_TRAIN = True
 
-transforms = { 'train': get_transform(name = c.dataset, augment=AUGMENT_TRAIN),
+transforms = { 'train': get_transform(name = c.dataset, augment=c.AUGMENT_TRAIN),
 
                'test': get_transform(name = c.dataset, augment=False)}
 
@@ -84,7 +83,15 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
     tr_acc = np.array([])
     n_iters = 0
 
+    #Clear the logfile
+    logdir = os.path.dirname(MODEL_SAVEPATH)
+    logfile = open(logdir + 'log.txt', 'a')
+    logfile.close()
     for epoch in range(c.n_epochs):
+
+        logdir = os.path.dirname(MODEL_SAVEPATH)
+        logfile = open(logdir + 'log.txt', 'a')
+
         regime = getattr(model, 'regime')
 
         if 'lenet' not in c.model_name:
@@ -119,7 +126,10 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
                     p.org.copy_(p.data.clamp_(-1, 1))
             # exit()
             if iter % c.print_interval ==0:
-                print('Epoch %d | Iters: %d | Train Loss %.3f | Acc %.2f' % (epoch+1, n_iters, lossval_, accuracy_))
+                logstr = 'Epoch %d | Iters: %d | Train Loss %.3f | Acc %.2f' % (epoch+1, n_iters, lossval_, accuracy_)
+                print(logstr)
+                logstr +='\n'
+                logfile.write(logstr)
 
             if iter % record_interval==0:
                 lossval = np.hstack([lossval, lossval_])
@@ -130,12 +140,13 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         test_loss, test_acc_ = test_model(test_loader, model, criterion, printing=False)
 
         #Save model if validation acc has improved
-
         if len(valid_acc) >= 1:
+
             if val_acc > np.max(valid_acc):
                 print('Found new best model! Saving model from this epoch.')
-                if not os.path.exists(c.model_savepath):
-                    os.makedirs(c.model_savepath)
+                os.makedirs(os.path.dirname(MODEL_SAVEPATH), exist_ok=True)
+                f = open(MODEL_SAVEPATH, "w")
+                f.close()
                 torch.save({
                     'epoch': epoch + 1,
                     'model_state_dict': model.state_dict(),
@@ -146,20 +157,24 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         test_acc = np.hstack([test_acc, test_acc_])
 
 
-        print('\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc))
-        print('***********************************************\n')
+        epoch_logstring = '\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc)
+        epoch_logstring = epoch_logstring + '***********************************************\n\n'
+        print(epoch_logstring)
+        logfile.write(epoch_logstring)
+
+        logfile.close()
 
 
     best_acc = np.max(valid_acc)
     best_epoch = np.argwhere(valid_acc==best_acc)+1
     print('--------------------------------------------------')
-    print('-----FINISHED STE TRAINING-----')
-    print('----------Results for Training END----------')
+    print('-------------FINISHED STE TRAINING----------------')
+    print('-------------Results for Training END-------------')
     print('End Validation Acc %.3f | End Epoch %d' % (valid_acc[c.n_epochs-1], c.n_epochs))
     print('End TEST Acc %.3f | End Epoch %d\n' % (test_acc[c.n_epochs-1], c.n_epochs))
 
 
-    print('----------Results for BEST EPOCH----------')
+    print('--------------Results for BEST EPOCH--------------')
     print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[best_epoch-1], best_epoch))
     print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch-1], c.n_epochs))
 
@@ -184,6 +199,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     test_acc = np.array([])
     tr_acc = np.array([])
     n_iters = 0
+    c.gamma=0.1
 
     if load_model:
         checkpoint = torch.load(MODEL_SAVEPATH)
@@ -200,7 +216,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
         print('###############################')
         print('#        LOADED MODEL         #')
-        print('#        TEST ACC: %.3f       #' % (ste_testacc))
+        print('#        TEST ACC: %.3f     #' % (ste_testacc))
         print('#                             #')
         print('###############################')
 
@@ -231,13 +247,11 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             '''
             set fp wts
             '''
+            model.eval()
             for name, p in list(model.named_parameters()):
                 if hasattr(p, 'org'):
                     p.perturbation = p.org - p.data
                     p.data.copy_(p.org)
-                # Next time, dont do a binary pass
-                if hasattr(p, 'binary_pass'):
-                    p.binary_pass = False
 
             '''
             fp_pass
@@ -249,10 +263,11 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
             for name, p in list(model.named_parameters()):
                 if hasattr(p, 'grad'):
-                    p.fp_grad = p.grad.clone()
+                    if p.grad is not None:
+                        p.fp_grad = p.grad.clone()
                 if hasattr(p, 'binary_pass'):
                     p.binary_pass = True
-
+            model.train()
             '''
             quantized pass
             '''
@@ -265,9 +280,17 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             combine quantized update with regularizer
             '''
             for p in model.parameters():
-                pert = p.org - p.data
-                rg_grad = c.gamma * p.fp_grad * p.fp_grad * pert
-                p.grad.copy_(p.grad + rg_grad)
+
+                # if hasattr(p, 'grad') and hasattr(p, 'org'):
+                if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
+                    pert = p.org - p.data
+
+                    # rg_grad = c.gamma * pert
+                    rg_grad = c.gamma * p.fp_grad * p.fp_grad * pert
+                    p.grad.copy_(p.grad + rg_grad)
+                if p.grad is not None:
+                    p.grad.copy_(p.grad)
+
 
             accuracy_ = accuracy(output, target)[0].item()
             lossval_ = loss.item()
@@ -330,12 +353,16 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     return ste_testacc, fisher_testacc
 
 if c.TRAIN_FROM_SCRATCH:
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_perturbation_test/'+c.dataset+'/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
+
     train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH)
 
 
 if c.USE_FISHER_REG:
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'
+    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_perturbation_test/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_gold/'+c.dataset+'/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
     ste_testacc, fisher_testacc = train_fisher(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, load_model = True)
 
 print('STE ACCURACY:\t %.3f', ste_testacc)
