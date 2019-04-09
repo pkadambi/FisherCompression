@@ -12,12 +12,13 @@ cudnn.benchmark = True
 
 torch.cuda.set_device(0)
 
-c = LenetFashionMNISTConfig(n_epochs=5, USE_FISHER=True)
+c = LenetFashionMNISTConfig(n_epochs=100, USE_FISHER=True)
 # c = ResnetConfig(n_epochs=50, dataset='fashionmnist')
 
 c.print_interval = 50
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
+MODEL_SAVEPATH = c.model_savepath + 'checkpoint.pth'
 model = model(**model_config)
 # model.apply(xavier_initialize_weights)
 # model.apply(normal_initialize_biases)
@@ -112,16 +113,17 @@ for epoch in range(c.n_epochs):
     test_loss, test_acc_ = test_model(test_loader, model, criterion, printing=False)
 
     #Save model if validation acc has improved
-    if not os.path.exists(c.model_savepath):
-        os.makedirs(c.model_savepath)
-    torch.save({
-        'epoch': epoch + 1,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss}, c.model_savepath + 'checkpoint.pth')
-    # if len(valid_acc)>1:
-    #     if val_acc > np.max(valid_acc):
 
+    if len(valid_acc) >= 1:
+        if val_acc > np.max(valid_acc):
+            print('Found new best model! Saving model from this epoch.')
+            if not os.path.exists(c.model_savepath):
+                os.makedirs(c.model_savepath)
+            torch.save({
+                'epoch': epoch + 1,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'loss': loss}, MODEL_SAVEPATH)
 
     valid_acc = np.hstack([valid_acc, val_acc])
     test_acc = np.hstack([test_acc, test_acc_])
@@ -141,8 +143,8 @@ print('End TEST Acc %.3f | End Epoch %d\n' % (test_acc[c.n_epochs-1], c.n_epochs
 
 
 print('----------Results for BEST EPOCH----------')
-print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[best_epoch], best_epoch))
-print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch], c.n_epochs))
+print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[best_epoch-1], best_epoch))
+print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch-1], c.n_epochs))
 
 
 
