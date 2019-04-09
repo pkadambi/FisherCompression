@@ -10,7 +10,7 @@ import numpy as np
 
 def Binarize(tensor,quant_mode='det'):
     if quant_mode=='det':
-        return tensor.sign()
+        return tensor.sign()*.1
     else:
         return tensor.add_(1).div_(2).add_(torch.rand(tensor.size()).add(-0.5)).clamp_(0,1).round().mul_(2).add_(-1)
 
@@ -70,8 +70,8 @@ class BinarizeLinear(nn.Linear):
 
     def forward(self, input):
 
-        if input.size(1) != 784:
-            input.data=Binarize(input.data)
+        # if input.size(1) != 784:
+        #     input.data=Binarize(input.data)
 
         if not hasattr(self.weight,'org'):
             self.weight.org=self.weight.data.clone()
@@ -97,8 +97,8 @@ class BinarizeConv2d(nn.Conv2d):
 
 
     def forward(self, input):
-        if input.size(1) != 3:
-            input.data = Binarize(input.data)
+        # if input.size(1) != 3:
+        #     input.data = Binarize(input.data)
         if not hasattr(self.weight,'org'):
             self.weight.org=self.weight.data.clone()
 

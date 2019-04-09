@@ -12,7 +12,7 @@ torch.cuda.set_device(0)
 
 # c = LenetFashionMNISTConfig()
 c = ResnetCifar10Config()
-
+c.print_interval = 75
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
 model = model(**model_config)
