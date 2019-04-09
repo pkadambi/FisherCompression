@@ -19,7 +19,7 @@ torch.cuda.set_device(0)
 # c = LenetFashionMNISTConfig(n_epochs=100, USE_FISHER=True, n_fisher_epochs=15, TRAIN_FROM_SCRATCH=False, gamma=.1)
 # c.print_interval = 50
 
-c = ResnetConfig(n_epochs=300, dataset='cifar10', USE_FISHER = True, TRAIN_FROM_SCRATCH = True, n_fisher_epochs=30)
+c = ResnetConfig(n_epochs=5, dataset='cifar10', USE_FISHER = True, TRAIN_FROM_SCRATCH = False, n_fisher_epochs=30)
 c.print_interval = 25
 #
 #-----------------------------------------------------------------------------------------------------------------------
@@ -44,16 +44,15 @@ transforms = { 'train': get_transform(name = c.dataset, augment=c.AUGMENT_TRAIN)
 
                'test': get_transform(name = c.dataset, augment=False)}
 
+
+
 train_data = get_dataset(c.dataset, 'train', transform = transforms['train'])
-
-
 train_data, valid_data = generate_validation_split(train_data, validation_split=.05)
 
 train_loader = torch.utils.data.DataLoader(
         train_data,
         batch_size=c.batch_size, shuffle=True,
         num_workers=c.workers, pin_memory=True)
-
 valid_loader = torch.utils.data.DataLoader(
         valid_data,
         batch_size=c.batch_size, shuffle=True,
@@ -141,6 +140,9 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
 
         #Save model if validation acc has improved
         if len(valid_acc) >= 1:
+            for name, p in list(model.named_parameters()):
+                if hasattr(p, 'org'):
+                    p.data.copy_(p.org)
 
             if val_acc > np.max(valid_acc):
                 print('Found new best model! Saving model from this epoch.')
@@ -153,6 +155,9 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss}, MODEL_SAVEPATH)
 
+            for p in list(model.parameters()):
+                if hasattr(p, 'org'):
+                    p.org.copy_(p.data.clamp_(-1, 1))
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
@@ -247,7 +252,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             '''
             set fp wts
             '''
-            model.eval()
+            model.train()
             for name, p in list(model.named_parameters()):
                 if hasattr(p, 'org'):
                     p.perturbation = p.org - p.data
@@ -283,10 +288,8 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
                 # if hasattr(p, 'grad') and hasattr(p, 'org'):
                 if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
-                    pert = p.org - p.data
-
                     # rg_grad = c.gamma * pert
-                    rg_grad = c.gamma * p.fp_grad * p.fp_grad * pert
+                    rg_grad = c.gamma * p.fp_grad * p.fp_grad * p.perturbation
                     p.grad.copy_(p.grad + rg_grad)
                 if p.grad is not None:
                     p.grad.copy_(p.grad)

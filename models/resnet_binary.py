@@ -225,6 +225,14 @@ class ResNet_cifar10(ResNet):
             220: {'lr': 1e-5}
         }
 
+        # self.regime = {
+        #     0: {'optimizer': 'Adam', 'lr': 5e-3},
+        #     101: {'lr': 1e-3},
+        #     142: {'lr': 5e-4},
+        #     184: {'lr': 1e-4},
+        #     220: {'lr': 1e-5}
+        # }
+
 class ResNet_fashionmnist(ResNet):
 
     def __init__(self, num_classes=10,
