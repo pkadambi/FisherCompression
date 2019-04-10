@@ -19,7 +19,7 @@ torch.cuda.set_device(0)
 # c = LenetFashionMNISTConfig(n_epochs=100, USE_FISHER=True, n_fisher_epochs=15, TRAIN_FROM_SCRATCH=False, gamma=.1)
 # c.print_interval = 50
 
-c = ResnetConfig(n_epochs=5, dataset='cifar10', USE_FISHER = True, TRAIN_FROM_SCRATCH = False, n_fisher_epochs=30)
+c = ResnetConfig(n_epochs=200, dataset='cifar10', USE_FISHER = True, TRAIN_FROM_SCRATCH=True, n_fisher_epochs=30)
 c.print_interval = 25
 #
 #-----------------------------------------------------------------------------------------------------------------------
@@ -83,6 +83,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
     n_iters = 0
 
     #Clear the logfile
+    os.makedirs(os.path.dirname(MODEL_SAVEPATH), exist_ok=True)
     logdir = os.path.dirname(MODEL_SAVEPATH)
     logfile = open(logdir + 'log.txt', 'a')
     logfile.close()
@@ -146,9 +147,6 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
 
             if val_acc > np.max(valid_acc):
                 print('Found new best model! Saving model from this epoch.')
-                os.makedirs(os.path.dirname(MODEL_SAVEPATH), exist_ok=True)
-                f = open(MODEL_SAVEPATH, "w")
-                f.close()
                 torch.save({
                     'epoch': epoch + 1,
                     'model_state_dict': model.state_dict(),
@@ -157,7 +155,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
 
             for p in list(model.parameters()):
                 if hasattr(p, 'org'):
-                    p.org.copy_(p.data.clamp_(-1, 1))
+                    p.org.copy_(p.data)
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
@@ -183,6 +181,8 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
     print('Best Validation Acc: %.3f | At Epoch: %d' % (valid_acc[best_epoch-1], best_epoch))
     print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch-1], c.n_epochs))
 
+
+    #TODO: Save weight pdf into results file (weight pdf from optimal iteration, AND from end of training)
     x = np.arange(len(lossval)*record_interval)
     two_scale_plot(lossval, tr_acc, y1_label= 'Train Loss', y2_label = 'Train Acc')
 
@@ -290,7 +290,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
                     # rg_grad = c.gamma * pert
                     rg_grad = c.gamma * p.fp_grad * p.fp_grad * p.perturbation
-                    p.grad.copy_(p.grad + rg_grad)
+                    p.grad.copy_(p.grad + rg_grad.clamp(-.025,.025))
                 if p.grad is not None:
                     p.grad.copy_(p.grad)
 
@@ -352,20 +352,22 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     print('Test Acc at Best Valid Epoch: %.3f | Model From Epoch: %d' % (test_acc[best_epoch_fisher - 1], best_epoch_total))
     print('Best FISHER Epoch %d' % (best_epoch_fisher ))
 
+
+    #TODO: Save MSQE vs Iter, fisher loss vs iter, and
     fisher_testacc = max(test_acc[c.n_fisher_epochs - 1], test_acc[best_epoch_fisher - 1])
     return ste_testacc, fisher_testacc
 
 if c.TRAIN_FROM_SCRATCH:
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_perturbation_test/'+c.dataset+'/checkpoint.pth'
-    MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_unclampedSTE/'+c.dataset+'/checkpoint.pth'
+    # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
 
     train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH)
 
 
 if c.USE_FISHER_REG:
-    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_perturbation_test/'+c.dataset+'/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_unclampedSTE/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_gold/'+c.dataset+'/checkpoint.pth'
-    MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
+    # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
     ste_testacc, fisher_testacc = train_fisher(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, load_model = True)
 
 print('STE ACCURACY:\t %.3f', ste_testacc)
