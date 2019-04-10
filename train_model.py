@@ -117,6 +117,9 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             accuracy_ = accuracy(output, target)[0].item()
             lossval_ = loss.item()
             for name, p in list(model.named_parameters()):
+                if hasattr(p, 'grad'):
+                    if p.grad is not None:
+                        p.grad.copy_(p.grad.clamp_(-.1, .1))
                 if hasattr(p, 'org'):
                     p.data.copy_(p.org)
                     # print(name)
@@ -155,7 +158,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
 
             for p in list(model.parameters()):
                 if hasattr(p, 'org'):
-                    p.org.copy_(p.data)
+                    p.org.copy_(p.data.clamp_(-1, 1))
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
@@ -290,7 +293,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
                     # rg_grad = c.gamma * pert
                     rg_grad = c.gamma * p.fp_grad * p.fp_grad * p.perturbation
-                    p.grad.copy_(p.grad + rg_grad.clamp(-.025,.025))
+                    p.grad.copy_(p.grad + rg_grad.clamp_(-.1,.1))
                 if p.grad is not None:
                     p.grad.copy_(p.grad)
 
@@ -358,14 +361,14 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     return ste_testacc, fisher_testacc
 
 if c.TRAIN_FROM_SCRATCH:
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_unclampedSTE/'+c.dataset+'/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_clampedSTEandGrads/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
 
     train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH)
 
 
 if c.USE_FISHER_REG:
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_unclampedSTE/'+c.dataset+'/checkpoint.pth'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_clampedSTEandGrads/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_gold/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
     ste_testacc, fisher_testacc = train_fisher(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, load_model = True)
