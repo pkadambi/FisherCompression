@@ -126,7 +126,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
                     p.org.copy_(p.data.clamp_(-1, 1))
             # exit()
             if iter % c.print_interval ==0:
-                logstr = 'Epoch %d | Iters: %d | Train Loss %.3f | Acc %.2f' % (epoch+1, n_iters, lossval_, accuracy_)
+                logstr = 'Epoch %d | Iters: %d | Train Loss %.5f | Acc %.3f' % (epoch+1, n_iters, lossval_, accuracy_)
                 print(logstr)
                 logstr +='\n'
                 logfile.write(logstr)
@@ -160,7 +160,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         test_acc = np.hstack([test_acc, test_acc_])
 
 
-        epoch_logstring = '\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc)
+        epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc)
         epoch_logstring = epoch_logstring + '***********************************************\n\n'
         print(epoch_logstring)
         logfile.write(epoch_logstring)
