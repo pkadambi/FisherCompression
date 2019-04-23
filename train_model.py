@@ -253,6 +253,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     n_tot_epochs =  best_epoch+c.n_regularized_epochs
 
     #plot loss and accuracy curves
+    tr_start = time.time()
     for epoch in range(best_epoch, n_tot_epochs):
         regime = getattr(model, 'regime')
 
@@ -382,9 +383,10 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             for p in list(model.parameters()):
                 if hasattr(p, 'org'):
                     p.org.copy_(p.data.clamp_(-1, 1))
-
+            elapsed = time.time() - ep_start
+            total_elapsed = time.time() - ep_start
             if iter % c.print_interval == 0:
-                print('Epoch %d | Iters: %d | Train Loss %.4f | %s Loss %.4f|  Acc %.2f' % (epoch + 1, config.n_iters, lossval_, c.REGULARIZATION, reg_loss_ , accuracy_))
+                print('Epoch %d | Iters: %d | Train Loss %.4f | %s Loss %.4f|  Acc %.2f| Elapsed Time %1f' % (epoch + 1, config.n_iters, lossval_, c.REGULARIZATION, reg_loss_ , accuracy_, total_elapsed))
 
             if iter % record_interval == 0:
                 lossval = np.hstack([lossval, lossval_])
@@ -419,11 +421,11 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
-        ep_end = time.time()
-
-        print('\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f | Elapsed Time %1.f \n' % (epoch + 1, val_loss, val_acc, ep_end))
+        
+        ep_time = time.time() - ep_start
+        print('\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f | Epoch Time %1.f \n' % (epoch + 1, val_loss, val_acc, ep_time))
         print('***********************************************\n')
-        exit()
+        # exit()
     best_acc = np.max(valid_acc)
 
     #compute the best epoch (ie TOTAL best, best_ste+best_fisher)
