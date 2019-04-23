@@ -24,7 +24,7 @@ torch.cuda.set_device(0)
 # c.print_interval = 50
 
 # c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_fisher_epochs=0)
-c = ResnetConfig(n_epochs=0, dataset='cifar10', REGULARIZATION='Fisher', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=15)
+c = ResnetConfig(n_epochs=0, dataset='cifar10', REGULARIZATION='KLL2', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=15, gamma=0.5)
 c.print_interval = 25
 #
 #-----------------------------------------------------------------------------------------------------------------------
@@ -221,7 +221,6 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     valid_acc = np.array([])
     test_acc = np.array([])
     tr_acc = np.array([])
-    c.gamma=0.001
 
     if load_model:
         checkpoint = torch.load(MODEL_SAVEPATH)
@@ -244,7 +243,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
         print('###############################')
         print('#                             #')
-        print('#  STARTING FISHER TRAINING   #')
+        print('#  START REGULARIZER TRAINING #')
         print('#                             #')
         print('###############################')
 
@@ -287,7 +286,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             optimizer.zero_grad()
             loss = criterion(output_fp, target)
             optimizer.zero_grad()
-            loss.backward(retain_graph=False)
+            loss.backward(retain_graph=True)
             '''
             quantized pass
             '''
@@ -316,7 +315,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             '''
             combine quantized update with regularizer
             '''
-            if c.REGULARIZATION == 'KL':
+            if 'KL' in c.REGULARIZATION:
                 loss = ce_loss_y_fq + c.gamma * kl_loss
                 # loss = ce_loss_y_fq
                 reg_loss = c.gamma * kl_loss
@@ -333,7 +332,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             for p in model.parameters():
                 # if hasattr(p, 'grad') and hasattr(p, 'org'):
                 if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
-                    pert_ = p.data - p.org
+                    pert_ = p.org - p.data
                     pert_sq = pert_ * pert_
 
                     if fisherpert is None:
@@ -347,10 +346,20 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                     else:
                         pertub = pertub + torch.sum(pert_sq)
                     # rg_grad = c.gamma * pert
-                    if c.REGULARIZATION == 'Fisher':
-                        rg_grad = c.gamma * 2 * p.fp_grad * p.fp_grad * p.perturbation
+
+                    if c.REGULARIZATION is None:
+                        pass
+                    elif 'Fisher' in c.REGULARIZATION and 'L2' in c.REGULARIZATION:
+                        # rg_grad = c.gamma * 2 * p.fp_grad * p.fp_grad * p.perturbation.clamp(-.1,.1)
+                        # rg_grad = c.gamma * 2 * p.grad * p.grad* p.perturbation.clamp(-.1,.1)
+                        rg_grad = c.gamma * 2 * ( p.fp_grad * p.fp_grad * pert_ + .000001 * pert_)
                         p.grad.copy_(p.grad + rg_grad.clamp_(-.1,.1))
-                    elif c.REGULARIZATION == 'L2':
+
+                    elif 'Fisher' in c.REGULARIZATION:
+                        rg_grad = c.gamma * 2 * p.fp_grad * p.fp_grad * pert_
+                        p.grad.copy_(p.grad + rg_grad.clamp_(-.1, .1))
+
+                    elif 'L2' in c.REGULARIZATION:
                         rg_grad = c.gamma * 2 * p.perturbation
                         p.grad.copy_(p.grad + rg_grad.clamp_(-.1, .1))
                     else:
@@ -358,12 +367,15 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 if p.grad is not None:
                     p.grad.copy_(p.grad)
 
-            if c.REGULARIZATION == 'KL':
-                reg_loss_= reg_loss.item()
-            elif c.REGULARIZATION == 'L2':
-                reg_loss_= pertub
-            elif c.REGULARIZATION == 'Fisher':
-                reg_loss_=fisherpert
+            reg_loss_ = 0
+            if c.REGULARIZATION is None:
+                reg_loss_ = 0
+            if'KL' in c.REGULARIZATION:
+                reg_loss_+= reg_loss.item()
+            if 'L2' in c.REGULARIZATION:
+                reg_loss_+= pertub
+            if 'Fisher' in c.REGULARIZATION:
+                reg_loss_+=fisherpert
 
 
             if config.n_iters % config.record_interval == 0 and config.n_iters>0:
@@ -505,8 +517,8 @@ if c.TRAIN_FROM_SCRATCH and c.n_epochs>0:
 
 if c.REGULARIZATION is not None:
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
-    DATA_SAVEPATH = './checkpoints/'+c.model_name+'_2/regularization'
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_2/'+c.dataset+'/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/'+c.model_name+'/regularization_'+c.REGULARIZATION
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'
     # DATA_SAVEPATH = './checkpoints/tmp/regularization'
     # MODEL_SAVEPATH = './checkpoints/tmp/cifar10/checkpoint.pth'
     print('Loading From:' + MODEL_SAVEPATH)
