@@ -76,10 +76,12 @@ def adjust_optimizer(optimizer, epoch, config):
     return optimizer
 
 def test_model(data_loader, model, criterion,printing=True):
+    print('Evaluating Model...')
     model.eval()
     n_test = 0.
     n_correct = 0.
     loss = 0.
+
     for iter, (inputs, target) in enumerate(data_loader):
         n_batch = inputs.size()[0]
 
@@ -88,6 +90,7 @@ def test_model(data_loader, model, criterion,printing=True):
         output = model(inputs)
 
         loss += criterion(output, target).item()
+
         n_correct += accuracy(output, target)[0].cpu().numpy() * n_batch/100.
         n_test += n_batch
 
