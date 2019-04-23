@@ -222,7 +222,6 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     test_acc = np.array([])
     tr_acc = np.array([])
     c.gamma=0.1
-
     if load_model:
         checkpoint = torch.load(MODEL_SAVEPATH)
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -291,7 +290,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             '''
             quantized pass
             '''
-            model.train()
+            model.train() #DO NOT DELETE THIS LINE!!!
             for name, p in list(model.named_parameters()):
                 if hasattr(p, 'grad'):
                     if p.grad is not None:
@@ -315,8 +314,8 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             combine quantized update with regularizer
             '''
             if c.REGULARIZATION == 'KL':
-                # loss = ce_loss_y_fq + kl_loss
-                loss = ce_loss_y_fq
+                loss = ce_loss_y_fq + kl_loss
+                # loss = ce_loss_y_fq
                 reg_loss = kl_loss
                 reg_loss_= reg_loss.item()
             else:
@@ -326,7 +325,8 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 for name, p in list(model.named_parameters()):
                     if hasattr(p, 'org'):
                         if config.n_iters % config.record_interval == 0:
-                            writer.add_histogram(name + ' perturbation', p.perturbation.clone().cpu().data.numpy(),
+                            pert_ = p.data - p.org
+                            writer.add_histogram(name + ' perturbation', pert_.clone().cpu().data.numpy(),
                                                  config.n_iters)
                             writer.add_histogram(name + ' FP', p.org.clone().cpu().data.numpy(), config.n_iters)
                             writer.add_histogram(name + ' Quant', p.data.clone().cpu().data.numpy(), config.n_iters)
@@ -384,7 +384,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 if hasattr(p, 'org'):
                     p.org.copy_(p.data.clamp_(-1, 1))
             elapsed = time.time() - ep_start
-            total_elapsed = time.time() - ep_start
+            total_elapsed = time.time() - tr_start
             if iter % c.print_interval == 0:
                 print('Epoch %d | Iters: %d | Train Loss %.4f | %s Loss %.4f|  Acc %.2f| Elapsed Time %1f' % (epoch + 1, config.n_iters, lossval_, c.REGULARIZATION, reg_loss_ , accuracy_, total_elapsed))
 
@@ -401,14 +401,14 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
         val_loss, val_acc = test_model(valid_loader, model, criterion, printing=False)
         test_loss, test_acc_ = test_model(test_loader, model, criterion, printing=False)
 
-        print(val_acc)
-        print(test_acc_)
+        valid_acc = np.hstack([valid_acc, val_acc])
+        test_acc = np.hstack([test_acc, test_acc_])
 
-        
-
-        REG_SAVEPATH = c.model_savepath + 'checkpoint_%s.pth'.format(c.REGULARIZATION)
+        REG_SAVEPATH = c.model_savepath + 'checkpoint_{}.pth'.format(c.REGULARIZATION)
+        print('VALID ACC\n')
+        print(valid_acc)
         if len(valid_acc) >= 1:
-            if val_acc > np.max(valid_acc):
+            if val_acc >= np.max(valid_acc):
                 print('Found new best model! Saving model from this epoch.')
                 if not os.path.exists(c.model_savepath):
                     os.makedirs(c.model_savepath)
@@ -418,12 +418,10 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                     'optimizer_state_dict': optimizer.state_dict(),
                     'loss': loss}, REG_SAVEPATH)
 
-        valid_acc = np.hstack([valid_acc, val_acc])
-        test_acc = np.hstack([test_acc, test_acc_])
 
         
         ep_time = time.time() - ep_start
-        print('\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f | Epoch Time %1.f \n' % (epoch + 1, val_loss, val_acc, ep_time))
+        print('\nEpoch %d | Valid Loss %.3f | Valid Acc %.2f | Epoch Time %.1f \n' % (epoch + 1, val_loss, val_acc, ep_time))
         print('***********************************************\n')
         # exit()
     best_acc = np.max(valid_acc)
