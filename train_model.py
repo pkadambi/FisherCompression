@@ -24,7 +24,7 @@ torch.cuda.set_device(0)
 # c.print_interval = 50
 
 # c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_fisher_epochs=0)
-c = ResnetConfig(n_epochs=0, dataset='cifar10', REGULARIZATION='KL', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=10)
+c = ResnetConfig(n_epochs=0, dataset='cifar10', REGULARIZATION='Fisher', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=15)
 c.print_interval = 25
 #
 #-----------------------------------------------------------------------------------------------------------------------
@@ -221,7 +221,8 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
     valid_acc = np.array([])
     test_acc = np.array([])
     tr_acc = np.array([])
-    c.gamma=0.1
+    c.gamma=0.001
+
     if load_model:
         checkpoint = torch.load(MODEL_SAVEPATH)
         model.load_state_dict(checkpoint['model_state_dict'])
@@ -284,19 +285,21 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             '''
             output_fp = model(inputs)
             optimizer.zero_grad()
-            # loss = criterion(output_fp, target)
-            # optimizer.zero_grad()
-            # loss.backward(retain_graph=True)
+            loss = criterion(output_fp, target)
+            optimizer.zero_grad()
+            loss.backward(retain_graph=False)
             '''
             quantized pass
             '''
-            model.train() #DO NOT DELETE THIS LINE!!!
             for name, p in list(model.named_parameters()):
                 if hasattr(p, 'grad'):
                     if p.grad is not None:
                         p.fp_grad = p.grad.clone()
+                        # print(p.fp_grad)
                 if hasattr(p, 'binary_pass'):
                     p.binary_pass = True
+
+            model.train() #DO NOT DELETE THIS LINE!!!
 
             output = model(inputs)
 
@@ -308,50 +311,84 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
             #Note on kl_loss(output, target) - output has to be log probs, targets have to be probs
             ce_loss_y_fq = criterion(output, target)
-            kl_loss = 0.1 * kl_criterion(outfp_logprob, out_s)
+            kl_loss = kl_criterion(outfp_logprob, out_s)
 
             '''
             combine quantized update with regularizer
             '''
             if c.REGULARIZATION == 'KL':
-                loss = ce_loss_y_fq + kl_loss
+                loss = ce_loss_y_fq + c.gamma * kl_loss
                 # loss = ce_loss_y_fq
-                reg_loss = kl_loss
-                reg_loss_= reg_loss.item()
+                reg_loss = c.gamma * kl_loss
             else:
                 loss = ce_loss_y_fq
 
-            if config.n_iters % config.record_interval == 0:
+
+            optimizer.zero_grad()
+            loss.backward()
+
+            fisherpert = None
+            pertub = None
+
+            for p in model.parameters():
+                # if hasattr(p, 'grad') and hasattr(p, 'org'):
+                if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
+                    pert_ = p.data - p.org
+                    pert_sq = pert_ * pert_
+
+                    if fisherpert is None:
+                        fisherpert = torch.sum(p.fp_grad * p.fp_grad * pert_sq)
+                    else:
+                        fisherpert = fisherpert + torch.sum(p.fp_grad * p.fp_grad * pert_sq)
+                    # pert_ = p.data - p.org
+                    # pert_sq = pert_ * pert_
+                    if pertub is None:
+                        pertub = torch.sum(pert_sq)
+                    else:
+                        pertub = pertub + torch.sum(pert_sq)
+                    # rg_grad = c.gamma * pert
+                    if c.REGULARIZATION == 'Fisher':
+                        rg_grad = c.gamma * 2 * p.fp_grad * p.fp_grad * p.perturbation
+                        p.grad.copy_(p.grad + rg_grad.clamp_(-.1,.1))
+                    elif c.REGULARIZATION == 'L2':
+                        rg_grad = c.gamma * 2 * p.perturbation
+                        p.grad.copy_(p.grad + rg_grad.clamp_(-.1, .1))
+                    else:
+                        pass
+                if p.grad is not None:
+                    p.grad.copy_(p.grad)
+
+            if c.REGULARIZATION == 'KL':
+                reg_loss_= reg_loss.item()
+            elif c.REGULARIZATION == 'L2':
+                reg_loss_= pertub
+            elif c.REGULARIZATION == 'Fisher':
+                reg_loss_=fisherpert
+
+
+            if config.n_iters % config.record_interval == 0 and config.n_iters>0:
                 for name, p in list(model.named_parameters()):
                     if hasattr(p, 'org'):
                         if config.n_iters % config.record_interval == 0:
                             pert_ = p.data - p.org
+
                             writer.add_histogram(name + ' perturbation', pert_.clone().cpu().data.numpy(),
                                                  config.n_iters)
                             writer.add_histogram(name + ' FP', p.org.clone().cpu().data.numpy(), config.n_iters)
                             writer.add_histogram(name + ' Quant', p.data.clone().cpu().data.numpy(), config.n_iters)
 
                 writer.add_scalar('metrics/kl_loss', kl_loss.item(), config.n_iters)
+                writer.add_scalar('metrics/MSQE', pertub.item(), config.n_iters)
+
+                # if 'Fisher' in c.REGULARIZATION:
+                writer.add_scalar('metrics/FisherRegularizer', fisherpert.item(), config.n_iters)
 
                 writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
+                writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
+                writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
 
-                if config.REGULARIZATION is not None:
+                if config.REGULARIZATION == 'KL':
                     writer.add_scalars('used_losses/', {'H(y, f_q)_STE_Loss:': loss.item(), 'Regularizer Loss:': reg_loss.item()}, config.n_iters)
-
-            optimizer.zero_grad()
-            loss.backward()
-            for p in model.parameters():
-
-                # if hasattr(p, 'grad') and hasattr(p, 'org'):
-                if hasattr(p, 'fp_grad') and hasattr(p, 'org'):
-                    # rg_grad = c.gamma * pert
-                    if c.REGULARIZATION == 'Fisher':
-                        rg_grad = c.gamma * p.fp_grad * p.fp_grad * p.perturbation
-                        p.grad.copy_(p.grad + rg_grad.clamp_(-.1,.1))
-                    else:
-                        pass
-                if p.grad is not None:
-                    p.grad.copy_(p.grad)
 
             '''
             Gradient Clipping
@@ -378,15 +415,17 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
             Data Logging
             '''
 
-            # optimizer.step()
+            optimizer.step()
 
             for p in list(model.parameters()):
                 if hasattr(p, 'org'):
                     p.org.copy_(p.data.clamp_(-1, 1))
             elapsed = time.time() - ep_start
             total_elapsed = time.time() - tr_start
-            if iter % c.print_interval == 0:
-                print('Epoch %d | Iters: %d | Train Loss %.4f | %s Loss %.4f|  Acc %.2f| Elapsed Time %1f' % (epoch + 1, config.n_iters, lossval_, c.REGULARIZATION, reg_loss_ , accuracy_, total_elapsed))
+            if iter % c.print_interval == 0 and iter>0:
+                print(pertub)
+                print(fisherpert)
+                print('Epoch %d | Iters: %d | Train Loss %.4f | %s Reg Loss %.4f|  Acc %.2f| Elapsed Time %1f' % (epoch + 1, config.n_iters, lossval_, c.REGULARIZATION, reg_loss_ , accuracy_, total_elapsed))
 
             if iter % record_interval == 0:
                 lossval = np.hstack([lossval, lossval_])
@@ -404,7 +443,8 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
-        REG_SAVEPATH = c.model_savepath + 'checkpoint_{}.pth'.format(c.REGULARIZATION)
+        REG_SAVEPATH = MODEL_SAVEPATH[:-4]+c.REGULARIZATION+'.pth'
+        # REG_SAVEPATH = c.model_savepath + 'checkpoint_{}.pth'.format(c.REGULARIZATION)
         print('VALID ACC\n')
         print(valid_acc)
         if len(valid_acc) >= 1:
@@ -465,10 +505,10 @@ if c.TRAIN_FROM_SCRATCH and c.n_epochs>0:
 
 if c.REGULARIZATION is not None:
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
-    # DATA_SAVEPATH = './checkpoints/'+c.model_name+'_4/regularization'
-    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_gold/'+c.dataset+'/checkpoint.pth'
-    DATA_SAVEPATH = './checkpoints/tmp/regularization'
-    MODEL_SAVEPATH = './checkpoints/tmp/cifar10/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/'+c.model_name+'_2/regularization'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_2/'+c.dataset+'/checkpoint.pth'
+    # DATA_SAVEPATH = './checkpoints/tmp/regularization'
+    # MODEL_SAVEPATH = './checkpoints/tmp/cifar10/checkpoint.pth'
     print('Loading From:' + MODEL_SAVEPATH)
     '''
     Setup Summary Writer

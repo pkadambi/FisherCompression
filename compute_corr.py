@@ -58,18 +58,18 @@ model.load_state_dict(checkpoint['model_state_dict'])
 optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
 best_epoch = checkpoint['epoch']
 best_loss = checkpoint['loss']
-# test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
-# print('###############################')
-# print('#                             #')
-# print('#  LOADING PRETRAINED MODEL   #')
-# print('#                             #')
-# print('###############################')
-#
-# print('###############################')
-# print('#        LOADED MODEL         #')
-# print('#        TEST ACC: %.3f     #' % (ste_testacc))
-# print('#                             #')
-# print('###############################')
+test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
+print('###############################')
+print('#                             #')
+print('#  LOADING PRETRAINED MODEL   #')
+print('#                             #')
+print('###############################')
+
+print('###############################')
+print('#        LOADED MODEL         #')
+print('#        TEST ACC: %.3f     #' % (ste_testacc))
+print('#                             #')
+print('###############################')
 
 
 model.train()
@@ -107,8 +107,8 @@ perts = []
 
 for name, p in model.named_parameters():
     if hasattr(p, 'perturbation'):
-        weight = p.data.cpu().numpy()
-        weight = weight.ravel()
+        weight = p.org.cpu().numpy()
+        weight = np.abs(weight.ravel())
 
         pert = p.perturbation.cpu().numpy()
         pert= np.abs(pert.ravel())
@@ -130,8 +130,9 @@ for name, p in model.named_parameters():
         # plt.scatter(weight, fisher)
 
 plt.figure()
-plt.plot(corcoeffs, 'r')
-plt.plot(spearmans, 'b')
-# plt.title('Plot of Spearman and Pearson Between \n Fisher and Perts Resnet-18')
+plt.plot(corcoeffs, 'r', label = 'Pearson')
+plt.plot(spearmans, 'b', label = 'Spearman')
+plt.title('Plot of Spearman and Pearson Between \n FIM Diagonal and Weight Magnitude Resnet-18')
+plt.legend(loc='Upper Left')
 plt.show()
 
