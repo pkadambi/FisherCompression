@@ -105,34 +105,129 @@ corcoeffs = []
 spearmans = []
 perts = []
 
-for name, p in model.named_parameters():
-    if hasattr(p, 'perturbation'):
-        weight = p.org.cpu().numpy()
-        weight = np.abs(weight.ravel())
+def find_lower_threshold(all_fishers, n_percent):
+    n_th = int(len(all_fishers)*n_percent)+1
+    print(n_th)
+    nth_smallest = np.partition(all_fishers, n_th)[n_th]
+    print(nth_smallest)
+    return nth_smallest
 
-        pert = p.perturbation.cpu().numpy()
-        pert= np.abs(pert.ravel())
 
-        fisher = p.fisher.cpu().numpy()
-        fisher = fisher.ravel()+.1
+fishers = []
 
-        print(fisher.shape)
-        pearson = np.corrcoef(fisher, weight)
-        spearman = spearmanr(fisher, weight)
-        # pearson = np.corrcoef(fisher, pert)
-        # spearman = spearmanr(fisher, pert)
-        print('Pearson\n'+str(pearson))
-        print('Spearman\n'+str(spearman))
-        names.append(str(name))
+pctage_perturbed = [.025, .05, .075, .1, .125, .15, .175, .2, .225, .25, .275, .3, .325, .35, .375, .4,
+              .425, .45, .475, .5, .525, .55, .575, .6]
 
-        corcoeffs.append(pearson[0,1])
-        spearmans.append(spearman[0])
-        # plt.scatter(weight, fisher)
+n_mc_iters = 10
+
+'''
+Accuracies based on perturbing the smallest percentage of fisher information values
+'''
+fisher_lower_pct_accuracies = np.zeros([len(pctage_perturbed), n_mc_iters])
+for i, pctage in enumerate(pctage_perturbed):
+
+    for j in range(n_mc_iters):
+        fishers = []
+
+        print('\nFraction of Fisher Perturbed: ' + str(pctage))
+        for name, p in model.named_parameters():
+            if hasattr(p, 'perturbation'):
+                fisher = p.fisher.cpu().numpy()
+                fisher = fisher.ravel()
+
+                fishers.append(fisher)
+
+        all_fishers = np.concatenate(fishers)
+        fshr = find_lower_threshold(all_fishers, pctage)
+
+        for name, p in model.named_parameters():
+            if hasattr(p, 'perturbation'):
+                fisher = p.fisher.cpu().numpy()
+                weight = p.org.cpu().numpy()
+                fishers.append(fisher)
+
+        for name, p in list(model.named_parameters()):
+            if hasattr(p, 'org'):
+                if hasattr(p, 'fisher'):
+                    p.tmp = p.org.clone()
+                    # p.org[p.fisher<fshr] = p.org[p.fisher<fshr] + torch.randn(p.org[p.fisher<fshr].size()).clamp_(-.1,.1).cuda()
+                    p.org[p.fisher<fshr] = p.org[p.fisher<fshr] + torch.randn(p.org[p.fisher<fshr].size()).cuda()
+
+                    # weight = p.org.cpu().numpy()
+                    # fishers.append(fisher)
+        test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
+        fisher_lower_pct_accuracies[i, j] = ste_testacc
+        # fisher_lower_pct_accuracies.append(ste_testacc)
+        print(ste_testacc)
+        for name, p in list(model.named_parameters()):
+            if hasattr(p, 'org'):
+                if hasattr(p, 'fisher'):
+                    p.org.copy_(p.tmp)
+        # test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
+        # print(ste_testacc)
+
+'''
+Accuracies based on perturbing the weights randomly
+'''
+randomly_perturbed_accuracy = np.zeros([len(pctage_perturbed), n_mc_iters])
+for i, pctage in enumerate(pctage_perturbed):
+    for j in range(n_mc_iters):
+
+        print('\nFraction of Wts Perturbed: ' + str(pctage))
+
+        for name, p in list(model.named_parameters()):
+            if hasattr(p, 'org'):
+                p.tmp = p.org.clone()
+
+                num_wts_layer = p.org.numel()
+                n_wts_perturb = int(num_wts_layer * pctage) + 1
+
+                if hasattr(p, 'fisher') and num_wts_layer > 100:
+
+                    noise = torch.rand(n_wts_perturb)
+                    inds = np.random.choice(num_wts_layer, n_wts_perturb)
+                    tmp = p.org.clone()
+                    tmp = tmp.view(-1)
+                    tmp[inds] = tmp[inds] + noise.cuda()
+                    tmp = tmp.view(p.org.size())
+                    # print(p.org.size())
+                    # print(tmp.size())
+                    p.org.copy_(tmp)
+
+        test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
+        randomly_perturbed_accuracy[i, j] = ste_testacc
+        print(ste_testacc)
+
+        for name, p in list(model.named_parameters()):
+            if hasattr(p, 'org'):
+                if hasattr(p, 'fisher'):
+                    p.org.copy_(p.tmp)
+        # test_loss, ste_testacc = test_model(test_loader, model, criterion, printing=False)
+        # print(ste_testacc)
+
+
+fisher_lower_pct_accuracies = np.mean(fisher_lower_pct_accuracies, axis=1)
+randomly_perturbed_accuracy = np.mean(randomly_perturbed_accuracy, axis=1)
+pctage_perturbed = np.array(pctage_perturbed).reshape([len(pctage_perturbed),1])
+plt.figure()
+plt.title('ResNet18 on CIFAR10:\n Perturb Weights Based on Smallest Fisher')
+plt.xlabel('Fraction of Wts Perturbed')
+plt.ylabel('Accuracy')
+plt.plot(pctage_perturbed, fisher_lower_pct_accuracies)
+plt.grid()
 
 plt.figure()
-plt.plot(corcoeffs, 'r', label = 'Pearson')
-plt.plot(spearmans, 'b', label = 'Spearman')
-plt.title('Plot of Spearman and Pearson Between \n FIM Diagonal and Weight Magnitude Resnet-18')
-plt.legend(loc='Upper Left')
+plt.title('ResNet18 on CIFAR10:\n Accuracy Under Clamped (-0.1,0.1) Normal Perturb to Weights')
+plt.xlabel('Fraction of Wts Perturbed')
+plt.ylabel('Accuracy')
+plt.plot(pctage_perturbed, fisher_lower_pct_accuracies, 'r', label='Fisher Based (smallest)')
+plt.plot(pctage_perturbed, randomly_perturbed_accuracy, 'b', label='Randomly Perturb')
+plt.legend(loc='Upper Right')
+plt.grid()
+
+
+# plt.figure()
+# plt.hist(all_fishers[np.random.choice(len(all_fishers), 2000000)], bins=100, log = True)
+# plt.grid()
 plt.show()
 
