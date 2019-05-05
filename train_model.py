@@ -91,9 +91,10 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
     logdir = os.path.dirname(MODEL_SAVEPATH)
     logfile = open(logdir + 'log.txt', 'a')
     logfile.close()
+    tr_start = time.time()
 
     for epoch in range(c.n_epochs):
-
+        ep_start = time.time()
         logdir = os.path.dirname(MODEL_SAVEPATH)
         logfile = open(logdir + 'log.txt', 'a')
 
@@ -134,19 +135,15 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             accuracy_ = accuracy(output, target)[0].item()
             lossval_ = loss.item()
             for name, p in list(model.named_parameters()):
-                if hasattr(p, 'grad'):
-                    if p.grad is not None:
-                        # p.grad.copy_(p.grad.clamp_(-.1, .1))
-                        pass
 
-                if hasattr(p, 'org'):
-                    p.perturbation = p.data - p.org
-
+                if hasattr(p, 'data'):
                     if config.n_iters % config.record_interval == 0:
-                        writer.add_histogram(name+' perturbation', p.perturbation.clone().cpu().data.numpy(), config.n_iters)
-                        writer.add_histogram(name+' FP', p.org.clone().cpu().data.numpy(), config.n_iters)
-                        writer.add_histogram(name+' Quant', p.data.clone().cpu().data.numpy(), config.n_iters)
+                        writer.add_histogram(name+' pdf', p.org.clone().cpu().data.numpy(), config.n_iters)
                     p.data.copy_(p.org)
+
+            if config.n_iters % config.record_interval == 0:
+                writer.add_scalar('loss/Crossentropy Loss', loss.item(), config.n_iters)
+
 
             optimizer.step()
 
@@ -154,8 +151,10 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
                 if hasattr(p, 'org'):
                     p.org.copy_(p.data.clamp_(-1, 1))
 
+            elapsed = time.time() - ep_start
+            total_elapsed = time.time() - tr_start
             if iter % c.print_interval ==0:
-                logstr = 'Epoch %d | Iters: %d | Train Loss %.5f | Acc %.3f' % (epoch+1, config.n_iters, lossval_, accuracy_)
+                logstr = 'Epoch %d | Iters: %d | Train Loss %.5f | Acc %.3f| Elapsed Time %1f' % (epoch+1, config.n_iters, lossval_, accuracy_, total_elapsed)
                 print(logstr)
                 logstr +='\n'
                 logfile.write(logstr)
@@ -409,8 +408,6 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
                 # if 'Fisher' in c.REGULARIZATION:
                 writer.add_scalar('metrics/FisherRegularizer', fisherpert.item(), config.n_iters)
 
-                writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
-                writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
                 writer.add_scalar('loss/H(y, f_q)_STE_Loss:', loss.item(), config.n_iters)
 
                 if config.REGULARIZATION == 'KL':
