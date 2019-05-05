@@ -190,7 +190,6 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
-
         epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc)
         epoch_logstring = epoch_logstring + '***********************************************\n\n'
         print(epoch_logstring)
