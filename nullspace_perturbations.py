@@ -12,7 +12,7 @@ from scipy.stats import spearmanr
 import os
 from tensorboardX import SummaryWriter
 
-c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_regularized_epochs=0)
+c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_regularized_epochs=50)
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
 MODEL_SAVEPATH = c.model_savepath + 'checkpoint.pth'
@@ -118,7 +118,7 @@ fishers = []
 pctage_perturbed = [.025, .05, .075, .1, .125, .15, .175, .2, .225, .25, .275, .3, .325, .35, .375, .4,
               .425, .45, .475, .5, .525, .55, .575, .6]
 
-n_mc_iters = 10
+n_mc_iters = 20
 
 '''
 Accuracies based on perturbing the smallest percentage of fisher information values

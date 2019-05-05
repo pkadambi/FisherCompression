@@ -97,8 +97,8 @@ class BinarizeConv2d(nn.Conv2d):
 
 
     def forward(self, input):
-        # if input.size(1) != 3:
-        #     input.data = Binarize(input.data)
+        if input.size(1) != 3:
+            input.data = Binarize(input.data)
         if not hasattr(self.weight,'org'):
             self.weight.org=self.weight.data.clone()
 

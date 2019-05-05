@@ -23,9 +23,11 @@ torch.cuda.set_device(0)
 # c = LenetFashionMNISTConfig(n_epochs=50, REGULARIZATION=None, n_fisher_epochs=1, TRAIN_FROM_SCRATCH=True, gamma=.1)
 # c.print_interval = 50
 
-# c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_fisher_epochs=0)
-c = ResnetConfig(n_epochs=0, dataset='cifar10', REGULARIZATION='KL', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=50, gamma=.01)
-c.print_interval = 25
+c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_regularized_epochs=10)
+# c = ResnetConfig(binary = False, n_epochs=200, dataset='cifar10', REGULARIZATION='KL', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=50, gamma=.01)
+# c.print_interval = 25
+c.model_name = 'vgg_binary'
+c.record_interval = 100
 #
 #-----------------------------------------------------------------------------------------------------------------------
 
@@ -110,6 +112,18 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             '''
             The STE procedure below
             '''
+            # nwts = 0
+            # for name, p in list(model.named_parameters()):
+            #     print('\n')
+            #     print(name)
+            #     nwts += p.data.numel()
+            #     wt = p.data.cpu().numpy()
+            #     wt = wt.ravel()
+            #     print(p.data.size())
+            #     print(np.shape(wt))
+            #
+            # print(nwts)
+            # exit()
             output = model(inputs)
 
             loss = criterion(output, target)
@@ -505,17 +519,19 @@ if c.TRAIN_FROM_SCRATCH and c.n_epochs>0:
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_clampedSTEandGrads/'+c.dataset+'/checkpoint.pth'
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
     # DATA_SAVEPATH = './checkpoints/'+c.model_name+'_4/training'
-    DATA_SAVEPATH = './checkpoints/tmp/training'
-    MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
+    # DATA_SAVEPATH = './checkpoints/tmp/training'
+    # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/' + c.model_name + '/training'
+    MODEL_SAVEPATH = './checkpoints/' + c.model_name + '/' + c.dataset + '/checkpoint.pth'
     '''
     Setup Summary Writer
     '''
     writer = SummaryWriter(log_dir=DATA_SAVEPATH)
     print('SAVING TO MODEL FILEPATH: ' + MODEL_SAVEPATH)
-    train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH)
+    train_from_scratch(c, model, optimizer, train_loader, test_loader, valid_loader, MODEL_SAVEPATH, record_interval=25)
 
 
-if c.REGULARIZATION is not None:
+if c.n_regularized_epochs>0:
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
     DATA_SAVEPATH = './checkpoints/'+c.model_name+'/regularization_'+c.REGULARIZATION
     MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'

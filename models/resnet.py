@@ -1,24 +1,18 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
-from quantize import quantize, quantize_grad, QConv2d, QLinear, RangeBN
-__all__ = ['resnet_quantized_float_bn']
 
-NUM_BITS = 2
-NUM_BITS_WEIGHT = 2
-# NUM_BITS_GRAD = 8
-NUM_BITS_GRAD = None
-
+__all__ = ['resnet']
 
 def conv3x3(in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
-    return QConv2d(in_planes, out_planes, kernel_size=3, stride=stride,
-                   padding=1, bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+    return nn.Conv2d(in_planes, out_planes, kernel_size=3, stride=stride,
+                     padding=1, bias=False)
 
 
 def init_model(model):
     for m in model.modules():
-        if isinstance(m, QConv2d):
+        if isinstance(m, nn.Conv2d):
             n = m.kernel_size[0] * m.kernel_size[1] * m.out_channels
             m.weight.data.normal_(0, math.sqrt(2. / n))
         elif isinstance(m, nn.BatchNorm2d):
@@ -63,15 +57,12 @@ class Bottleneck(nn.Module):
 
     def __init__(self, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
-        self.conv1 = QConv2d(inplanes, planes, kernel_size=1, bias=False,
-                             num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.conv2 = QConv2d(planes, planes, kernel_size=3, stride=stride,
-                             padding=1, bias=False, num_bits=NUM_BITS,
-                             num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=stride,
+                               padding=1, bias=False)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.conv3 = QConv2d(planes, planes * 4, kernel_size=1, bias=False,
-                             num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.conv3 = nn.Conv2d(planes, planes * 4, kernel_size=1, bias=False)
         self.bn3 = nn.BatchNorm2d(planes * 4)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -109,9 +100,8 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                QConv2d(self.inplanes, planes * block.expansion,
-                        kernel_size=1, stride=stride, bias=False,
-                        num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD),
+                nn.Conv2d(self.inplanes, planes * block.expansion,
+                          kernel_size=1, stride=stride, bias=False),
                 nn.BatchNorm2d(planes * block.expansion),
             )
 
@@ -147,8 +137,8 @@ class ResNet_imagenet(ResNet):
                  block=Bottleneck, layers=[3, 4, 23, 3]):
         super(ResNet_imagenet, self).__init__()
         self.inplanes = 64
-        self.conv1 = QConv2d(3, 64, kernel_size=7, stride=2, padding=3,
-                             bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
+                               bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
@@ -157,24 +147,17 @@ class ResNet_imagenet(ResNet):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AvgPool2d(7)
-        self.fc = QLinear(512 * block.expansion, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.fc = nn.Linear(512 * block.expansion, num_classes)
 
         init_model(self)
-        # self.regime = [
-        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
-        #      'weight_decay': 1e-4, 'momentum': 0.9},
-        #     {'epoch': 30, 'lr': 1e-2},
-        #     {'epoch': 60, 'lr': 1e-3, 'weight_decay': 0},
-        #     {'epoch': 90, 'lr': 1e-4}
-        # ]
+        self.regime = {
+            0: {'optimizer': 'SGD', 'lr': 1e-1,
+                'weight_decay': 1e-4, 'momentum': 0.9},
+            30: {'lr': 1e-2},
+            60: {'lr': 1e-3, 'weight_decay': 0},
+            90: {'lr': 1e-4}
+        }
 
-        self.regime = [
-            {'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-1,
-             'weight_decay': 1e-4, 'momentum': 0.9},
-            {'epoch': 30, 'lr': 1e-2},
-            {'epoch': 60, 'lr': 1e-3, 'weight_decay': 0},
-            {'epoch': 90, 'lr': 1e-4}
-        ]
 
 class ResNet_cifar10(ResNet):
 
@@ -183,8 +166,8 @@ class ResNet_cifar10(ResNet):
         super(ResNet_cifar10, self).__init__()
         self.inplanes = 16
         n = int((depth - 2) / 6)
-        self.conv1 = QConv2d(3, 16, kernel_size=3, stride=1, padding=1,
-                             bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,
+                               bias=False)
         self.bn1 = nn.BatchNorm2d(16)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = lambda x: x
@@ -193,34 +176,19 @@ class ResNet_cifar10(ResNet):
         self.layer3 = self._make_layer(block, 64, n, stride=2)
         self.layer4 = lambda x: x
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = QLinear(64, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+        self.fc = nn.Linear(64, num_classes)
 
         init_model(self)
-        # self.regime = [
-        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
-        #      'weight_decay': 1e-4, 'momentum': 0.9},
-        #     {'epoch': 81, 'lr': 1e-2},
-        #     {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
-        #     {'epoch': 164, 'lr': 1e-4}
-        # ]
-
-        # self.regime = {
-        #     0: {'optimizer': 'SGD', 'lr': 1e-1,
-        #      'weight_decay': 1e-4, 'momentum': 0.9},
-        #     81: {'lr': 1e-2},
-        #     122: {'lr': 1e-3, 'weight_decay': 0},
-        #     164: {'lr': 1e-4},
-        # }
-
         self.regime = {
-            0: {'optimizer': 'Adam', 'lr': 5e-3},
-            101: {'lr': 1e-3},
-            142: {'lr': 5e-4},
-            184: {'lr': 1e-4},
-            220: {'lr': 1e-5}
+            0: {'optimizer': 'SGD', 'lr': 1e-1,
+                'weight_decay': 1e-4, 'momentum': 0.9},
+            81: {'lr': 1e-2},
+            122: {'lr': 1e-3, 'weight_decay': 0},
+            164: {'lr': 1e-4}
         }
 
-def resnet_quantized_float_bn(**kwargs):
+
+def resnet(**kwargs):
     num_classes, depth, dataset = map(
         kwargs.get, ['num_classes', 'depth', 'dataset'])
     if dataset == 'imagenet':
@@ -244,6 +212,6 @@ def resnet_quantized_float_bn(**kwargs):
 
     elif dataset == 'cifar10':
         num_classes = num_classes or 10
-        depth = depth or 18
+        depth = depth or 18 #56
         return ResNet_cifar10(num_classes=num_classes,
                               block=BasicBlock, depth=depth)
