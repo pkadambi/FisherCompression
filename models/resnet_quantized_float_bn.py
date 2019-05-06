@@ -109,12 +109,16 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                QConv2d(self.inplanes, planes * block.expansion,
-                        kernel_size=1, stride=stride, bias=False,
-                        num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD),
-                nn.BatchNorm2d(planes * block.expansion),
-            )
+            pass
+        downsample = nn.Sequential(
+            # QConv2d(self.inplanes, planes * block.expansion,
+            #         kernel_size=1, stride=stride, bias=False,
+            #         num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD),
+            QuantizeConv2d(self.inplanes, planes * block.expansion,
+                           kernel_size=1, stride=stride, bias=False,
+                           n_bits=NUM_BITS, n_bitwt=NUM_BITS_WEIGHT, minval=-1, maxval=1),
+            nn.BatchNorm2d(planes * block.expansion),
+        )
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
