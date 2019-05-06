@@ -297,11 +297,18 @@ def resnet_binary(**kwargs):
             return ResNet_imagenet(num_classes=num_classes,
                                    block=Bottleneck, layers=[3, 8, 36, 3])
 
-    elif dataset == 'cifar10' :
+    elif dataset == 'cifar10':
         num_classes = num_classes or 10
         depth = depth or 18
         return ResNet_cifar10(num_classes=num_classes,
                               block=BasicBlock, depth=depth)
+
+    elif dataset == 'cifar100':
+        num_classes = num_classes or 100
+        depth = depth or 18
+        return ResNet_cifar10(num_classes=num_classes,
+                              block=BasicBlock, depth=depth)
+
     elif dataset == 'fashionmnist':
         num_classes = num_classes or 10
         depth = depth or 18

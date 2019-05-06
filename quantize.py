@@ -20,6 +20,7 @@ def _mean(p, dim):
 
 
 class UniformQuantize(InplaceFunction):
+# class UniformQuantize(nn.Module):
 
     @classmethod
     def forward(cls, ctx, input, num_bits=8, min_value=None, max_value=None,
@@ -87,6 +88,7 @@ class UniformQuantize(InplaceFunction):
     def backward(ctx, grad_output):
         # straight-through estimator
         grad_input = grad_output
+        # return grad_input
         return grad_input, None, None, None, None, None, None
 
 
@@ -139,6 +141,8 @@ def linear_biprec(input, weight, bias=None, num_bits_grad=None):
 
 def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, stochastic=False, inplace=False):
     return UniformQuantize().apply(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
+    # quant = UniformQuantize()
+    # return quant(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
 
 
 def quantize_grad(x, num_bits=8, min_value=None, max_value=None, stochastic=True, inplace=False):

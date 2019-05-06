@@ -40,18 +40,18 @@ class BinaryLenet(nn.Module):
             # nn.Linear(28*28, 10),
             # nn.LogSoftmax(dim=1)
         )
-        self.regime = {
-            0: {'optimizer': 'Adam', 'lr': 1e-3},
-            # 50: {'lr': 5e-6,'weight_decay': 0},
-            # 50: {'lr': 1e-7}
-        }
         # self.regime = {
-        #     0: {'optimizer': 'Adam', 'lr': 5e-3},
-        #     101: {'lr': 1e-3},
-        #     142: {'lr': 5e-4},
-        #     184: {'lr': 1e-4},
-        #     220: {'lr': 1e-5}
+        #     0: {'optimizer': 'Adam', 'lr': 1e-3},
+        #     50: {'lr': 5e-6,'weight_decay': 0},
+        #     50: {'lr': 1e-7}
         # }
+        self.regime = {
+            0: {'optimizer': 'Adam', 'lr': 5e-3},
+            101: {'lr': 1e-3},
+            142: {'lr': 5e-4},
+            184: {'lr': 1e-4},
+            220: {'lr': 1e-5}
+        }
     def forward(self, x):
         x = self.conv(x)
         x = x.view(-1, 50 * 7 * 7)

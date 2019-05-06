@@ -11,6 +11,7 @@ from utils.visualizaiton_utils import *
 import os
 import time
 from tensorboardX import SummaryWriter
+from quantize import quantize
 cudnn.benchmark = True
 
 torch.cuda.set_device(0)
@@ -19,18 +20,17 @@ torch.cuda.set_device(0)
 #
 #                           CONFIGURATION
 #
-# c = LenetFashionMNISTConfig(n_epochs=10, REGULARIZATION='Fisher', n_fisher_epochs=1, TRAIN_FROM_SCRATCH=True, gamma=.1)
+# c = LenetFashionMNISTConfig(n_epochs=10, REGULARIZATION='Fisher', n_regularized_epochs=1, TRAIN_FROM_SCRATCH=True, gamma=.1)
 # c = LenetFashionMNISTConfig(n_epochs=50, REGULARIZATION=None, n_fisher_epochs=1, TRAIN_FROM_SCRATCH=True, gamma=.1)
 # c.print_interval = 50
 
-c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_regularized_epochs=10)
+c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FROM_SCRATCH=True, n_regularized_epochs=10, gamma=.0)
 # c = ResnetConfig(binary = False, n_epochs=200, dataset='cifar10', REGULARIZATION='KL', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=50, gamma=.01)
 # c.print_interval = 25
-c.model_name = 'vgg_binary'
+c.model_name = 'resnet_quantized_nbit'
 c.record_interval = 100
 #
 #-----------------------------------------------------------------------------------------------------------------------
-
 
 model = models.__dict__[c.model_name]
 model_config = {'input_size': c.input_size, 'dataset': c.dataset}
@@ -113,7 +113,8 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             '''
             The STE procedure below
             '''
-            # nwts = 0
+
+            nwts = 0
             # for name, p in list(model.named_parameters()):
             #     print('\n')
             #     print(name)
@@ -125,6 +126,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             #
             # print(nwts)
             # exit()
+
             output = model(inputs)
 
             loss = criterion(output, target)
@@ -132,11 +134,39 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             optimizer.zero_grad()
             loss.backward()
 
+            # if iter == 0:
+            #     print('*** ITER ****')
+            #     print(iter)
+            #     for name, p in list(model.named_parameters()):
+            #         if 'fc' in name:
+            #             wts = p.data
+            #             wts = wts.cpu().numpy()
+            #             wts = wts.ravel()
+            #             print(name)
+            #             print(wts)
+            #
+            #     exit()
+            # for name, p in list(model.named_parameters()):
+            #     if 'conv' in name:
+            #         gradval = p.grad.cpu().numpy()
+            #         print(name)
+            #         gradval = gradval.ravel()
+            #         print(gradval)
+            #         wts = p.data
+            #         wts = wts.cpu().numpy()
+            #         wts = wts.ravel()
+            #         print(wts)
+            #         wts = quantize(p.data, num_bits=1, min_value=-.01, max_value=.01)
+            #         wts = wts.cpu().numpy()
+            #         wts = wts.ravel()
+            #         print(wts)
+            # exit()
+
             accuracy_ = accuracy(output, target)[0].item()
             lossval_ = loss.item()
             for name, p in list(model.named_parameters()):
 
-                if hasattr(p, 'data'):
+                if hasattr(p, 'org'):
                     if config.n_iters % config.record_interval == 0:
                         writer.add_histogram(name+' pdf', p.org.clone().cpu().data.numpy(), config.n_iters)
                     p.data.copy_(p.org)
@@ -190,7 +220,7 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
 
-        epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.2f \n' % (epoch + 1, val_loss, val_acc)
+        epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.3f | Test Acc %.3f\n' % (epoch + 1, val_loss, val_acc, test_acc_)
         epoch_logstring = epoch_logstring + '***********************************************\n\n'
         print(epoch_logstring)
         logfile.write(epoch_logstring)
@@ -337,7 +367,13 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
             optimizer.zero_grad()
             loss.backward()
-
+            for name, p in list(model.named_parameters()):
+                # if 'fc' in name:
+                gradval = p.grad.cpu().numpy
+                print(name)
+                gradval = gradval.ravel()
+                print(gradval)
+            exit()
             fisherpert = None
             pertub = None
 

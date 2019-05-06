@@ -29,7 +29,8 @@ c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION='KL', TRAIN_FRO
                  gamma=.01)
 c.binary = False
 c.print_interval = 25
-# c.model_name = 'resnet_quantized_float_bn'
+c.model_name = 'resnet_quantized_float_bn'
+# c.model_name = 'resnet_quantized'
 #
 # -----------------------------------------------------------------------------------------------------------------------
 
@@ -138,28 +139,20 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             #     exit()
 
             for name, p in list(model.named_parameters()):
-                print('\n')
+                # if 'fc' in name:
+                gradval = p.grad.cpu().numpy()
                 print(name)
-                print(p.data.size())
-                if 'fc' in name:
-                    wt = p.data.cpu().numpy()
-                    wt = wt.ravel()
-                    print(np.shape(wt))
-                    print(name)
-                    plt.hist(wt)
-                    plt.show()
-
+                gradval = gradval.ravel()
+                print(gradval)
             exit()
 
             if config.n_iters % config.record_interval == 0 and config.n_iters > 0:
                 for name, p in list(model.named_parameters()):
                     if config.n_iters % config.record_interval == 0:
-                        pert_ = p.data - p.org
 
-                    writer.add_histogram(name + ' pdf', pert_.clone().cpu().data.numpy(),
-                                         config.n_iters)
+                        writer.add_histogram(name + ' pdf', p.data.clone().cpu().numpy(),
+                                             config.n_iters)
 
-                writer.add_scalar('loss/Crossent Loss:', loss.item(), config.n_iters)
 
                 writer.add_scalar('loss/Crossent Loss:', loss.item(), config.n_iters)
 
@@ -201,8 +194,10 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
         total_elapsed = time.time() - tr_start
         valid_acc = np.hstack([valid_acc, val_acc])
         test_acc = np.hstack([test_acc, test_acc_])
+        epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.3f | Test Acc %.3f | Elapsed Time %1f\n' % \
+                          (epoch + 1, val_loss, val_acc, test_acc_, total_elapsed)
 
-        epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.2f | Elapsed Time %1f \n' % (epoch + 1, val_loss, val_acc)
+        # epoch_logstring = '\nEpoch %d | Valid Loss %.5f | Valid Acc %.2f | Elapsed Time %1f \n' % (epoch + 1, val_loss, val_acc, )
         epoch_logstring = epoch_logstring + '***********************************************\n\n'
         print(epoch_logstring)
         logfile.write(epoch_logstring)
@@ -527,9 +522,9 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
 
 if c.TRAIN_FROM_SCRATCH and c.n_epochs > 0:
-    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_clampedSTEandGrads/'+c.dataset+'/checkpoint.pth'
-    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
-    # DATA_SAVEPATH = './checkpoints/'+c.model_name+'_4/training'
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_pert_clampedSTEandGrads/'+c.dataset+'/checkpoint.pth'
+    # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/'+c.model_name+'/training'
     DATA_SAVEPATH = './checkpoints/tmp/training'
     MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
     '''
