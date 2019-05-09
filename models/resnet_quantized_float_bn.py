@@ -115,7 +115,7 @@ class ResNet(nn.Module):
             #         kernel_size=1, stride=stride, bias=False,
             #         num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD),
             QuantizeConv2d(self.inplanes, planes * block.expansion,
-                           kernel_size=1, stride=stride, bias=False,
+                           kernel_size=1, stride=stride, bias=False, padding=0,
                            n_bits=NUM_BITS, n_bitwt=NUM_BITS_WEIGHT, minval=-1, maxval=1),
             nn.BatchNorm2d(planes * block.expansion),
         )
@@ -209,6 +209,13 @@ class ResNet_cifar10(ResNet):
         #     {'epoch': 164, 'lr': 1e-4}
         # ]
 
+
+        # self.regime = [
+        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1, 'momentum': 0.9},
+        #     {'epoch': 81, 'lr': 1e-2},
+        #     {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
+        #     {'epoch': 164, 'lr': 1e-4}
+        # ]
         # self.regime = {
         #     0: {'optimizer': 'SGD', 'lr': 1e-1,
         #      'weight_decay': 1e-4, 'momentum': 0.9},
@@ -217,19 +224,19 @@ class ResNet_cifar10(ResNet):
         #     164: {'lr': 5e-5},
         # }
 
-        self.regime = {
-            0: {'optimizer': 'Adam', 'lr': 5e-3},
-            101: {'lr': 1e-3},
-            142: {'lr': 5e-4},
-            184: {'lr': 1e-4},
-            220: {'lr': 1e-5}
-        }
-
         # self.regime = {
         #     0: {'optimizer': 'Adam', 'lr': 5e-3},
         #     101: {'lr': 1e-3},
         #     142: {'lr': 5e-4},
         #     184: {'lr': 1e-4},
+        #     220: {'lr': 1e-5}
+        # }
+
+        # self.regime = {
+        #     0: {'optimizer': 'Adam', 'lr': 5e-3},
+        #     81: {'lr': 1e-3},
+        #     132: {'lr': 5e-4},
+        #     164: {'lr': 1e-4},
         #     220: {'lr': 1e-5}
         # }
 

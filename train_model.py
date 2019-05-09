@@ -28,6 +28,8 @@ c = ResnetConfig(n_epochs=200, dataset='cifar10', REGULARIZATION=None, TRAIN_FRO
 # c = ResnetConfig(binary = False, n_epochs=200, dataset='cifar10', REGULARIZATION='KL', TRAIN_FROM_SCRATCH=True, n_regularized_epochs=50, gamma=.01)
 # c.print_interval = 25
 c.model_name = 'resnet_quantized_nbit'
+c.batch_size = 256
+# c.model_name = 'resnet_quantized_float_bn'
 c.record_interval = 100
 #
 #-----------------------------------------------------------------------------------------------------------------------
@@ -41,7 +43,7 @@ model = model(**model_config)
 model.cuda()
 
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
-criterion = nn.CrossEntropyLoss()
+criterion = nn.NLLLoss()
 kl_criterion = nn.KLDivLoss()
 logsoftmax = nn.LogSoftmax()
 smfx = nn.Softmax()
@@ -114,7 +116,28 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             The STE procedure below
             '''
 
-            nwts = 0
+
+
+            output = model(inputs)
+
+            # for module in model.modules():
+            #     if hasattr(module, 'qweight'):
+            #         print('\n')
+            #         print(name)
+            #         nwts += p.data.numel()
+            #         wt = p.data.cpu().numpy()
+            #         wt = wt.ravel()
+            #         print(p.data.size())
+            #         # print(np.shape(wt))
+            #
+            #         qwt = p.qweight.cpu().numpy()
+            #         qwt = qwt.ravel()
+            #         print(qwt)
+            #         print(wt)
+            # exit()
+
+
+            # nwts = 0
             # for name, p in list(model.named_parameters()):
             #     print('\n')
             #     print(name)
@@ -122,13 +145,15 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             #     wt = p.data.cpu().numpy()
             #     wt = wt.ravel()
             #     print(p.data.size())
-            #     print(np.shape(wt))
+            #     # print(np.shape(wt))
+            #
+            #     qwt = p.qweight.cpu().numpy()
+            #     qwt = qwt.ravel()
+            #     print(qwt)
+            #     print(wt)
             #
             # print(nwts)
             # exit()
-
-            output = model(inputs)
-
             loss = criterion(output, target)
 
             optimizer.zero_grad()
@@ -166,10 +191,10 @@ def train_from_scratch(config, model, optimizer, train_loader, test_loader, vali
             lossval_ = loss.item()
             for name, p in list(model.named_parameters()):
 
-                if hasattr(p, 'org'):
+                if hasattr(p, 'data'):
                     if config.n_iters % config.record_interval == 0:
-                        writer.add_histogram(name+' pdf', p.org.clone().cpu().data.numpy(), config.n_iters)
-                    p.data.copy_(p.org)
+                        writer.add_histogram(name+'_wt_pdf', p.data.clone().cpu().numpy(), config.n_iters)
+                    # p.data.copy_(p.org)
 
             if config.n_iters % config.record_interval == 0:
                 writer.add_scalar('loss/Crossentropy Loss', loss.item(), config.n_iters)
@@ -553,8 +578,8 @@ if c.TRAIN_FROM_SCRATCH and c.n_epochs>0:
     # DATA_SAVEPATH = './checkpoints/'+c.model_name+'_4/training'
     # DATA_SAVEPATH = './checkpoints/tmp/training'
     # MODEL_SAVEPATH = './checkpoints/tmp/checkpoint.pth'
-    DATA_SAVEPATH = './checkpoints/' + c.model_name + '/training'
-    MODEL_SAVEPATH = './checkpoints/' + c.model_name + '/' + c.dataset + '/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/' + c.model_name + '_2bit/training'
+    MODEL_SAVEPATH = './checkpoints/' + c.model_name + '_2bit/' + c.dataset + '/checkpoint.pth'
     '''
     Setup Summary Writer
     '''
@@ -565,8 +590,8 @@ if c.TRAIN_FROM_SCRATCH and c.n_epochs>0:
 
 if c.n_regularized_epochs>0:
     # MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'_4/checkpoint.pth'
-    DATA_SAVEPATH = './checkpoints/'+c.model_name+'/regularization_'+c.REGULARIZATION
-    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'/'+c.dataset+'/checkpoint.pth'
+    DATA_SAVEPATH = './checkpoints/'+c.model_name+'_2bit/regularization_'+c.REGULARIZATION
+    MODEL_SAVEPATH = './checkpoints/'+c.model_name+'_2bit/'+c.dataset+'/checkpoint.pth'
     # DATA_SAVEPATH = './checkpoints/tmp/regularization'
     # MODEL_SAVEPATH = './checkpoints/tmp/cifar10/checkpoint.pth'
     print('Loading From:' + MODEL_SAVEPATH)

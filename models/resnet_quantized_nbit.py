@@ -34,24 +34,26 @@ class BasicBlock(nn.Module):
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU(inplace=True)
         self.conv2 = conv3x3(planes, planes)
+
         self.bn2 = nn.BatchNorm2d(planes)
+
         self.downsample = downsample
         self.stride = stride
 
     def forward(self, x):
-        residual = x
+        residual = x.clone()
 
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
 
         out = self.conv2(out)
-        out = self.bn2(out)
 
         if self.downsample is not None:
             residual = self.downsample(x)
 
         out += residual
+        out = self.bn2(out)
         out = self.relu(out)
 
         return out
@@ -94,8 +96,11 @@ class Bottleneck(nn.Module):
             residual = self.downsample(x)
 
         out += residual
-        out = self.relu(out)
+        # out = self.relu(out)
 
+        if self.do_bntan:
+            out = self.bn2(out)
+            out = self.relu(out)
         return out
 
 
@@ -123,10 +128,15 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x):
+        # x = self.conv1(x)
+        # x = self.bn1(x)
+        # x = self.relu(x)
+        # x = self.maxpool(x)
+
         x = self.conv1(x)
+        x = self.maxpool(x)
         x = self.bn1(x)
         x = self.relu(x)
-        x = self.maxpool(x)
 
         x = self.layer1(x)
         x = self.layer2(x)
@@ -135,7 +145,12 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
+
+        x = self.bn2(x)
+        x = self.relu(x)
         x = self.fc(x)
+        x = self.bn3(x)
+        x = self.logsoftmax(x)
 
         return x
 
@@ -173,35 +188,63 @@ class ResNet_cifar10(ResNet):
     def __init__(self, num_classes=10,
                  block=BasicBlock, depth=18):
         super(ResNet_cifar10, self).__init__()
-        self.inplanes = 16
+        self.inflate = 5
+        self.inplanes = 16 * self.inflate
         n = int((depth - 2) / 6)
-        self.conv1 = QConv2d(3, 16, kernel_size=3, stride=1, padding=1,
+        self.conv1 = QConv2d(3, 16 * self.inflate, kernel_size=3, stride=1, padding=1,
                              bias=False, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
-        self.bn1 = nn.BatchNorm2d(16)
+        self.bn1 = nn.BatchNorm2d(16 * self.inflate)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = lambda x: x
-        self.layer1 = self._make_layer(block, 16, n)
-        self.layer2 = self._make_layer(block, 32, n, stride=2)
-        self.layer3 = self._make_layer(block, 64, n, stride=2)
+        self.layer1 = self._make_layer(block, 16 * self.inflate, n)
+        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2)
+        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2)
         self.layer4 = lambda x: x
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = QLinear(64, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD)
+
+        self.bn2 = nn.BatchNorm1d(64 * self.inflate)
+        self.bn3 = nn.BatchNorm1d(10)
+
+        self.logsoftmax = nn.LogSoftmax()
+
+        self.fc = QLinear(64 * self.inflate, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT,
+                          num_bits_grad=NUM_BITS_GRAD)
 
         init_model(self)
-        # self.regime = [
-        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
-        #      'weight_decay': 1e-4, 'momentum': 0.9},
-        #     {'epoch': 81, 'lr': 1e-2},
-        #     {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
-        #     {'epoch': 164, 'lr': 1e-4}
-        # ]
-
         self.regime = [
-            {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1, 'momentum': 0.9},
-            {'epoch': 81, 'lr': 5e-3},
-            {'epoch': 101, 'lr': 1e-3,},
+            {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
+             'weight_decay': 1e-4, 'momentum': 0.9},
+            {'epoch': 81, 'lr': 1e-2},
+            {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
             {'epoch': 164, 'lr': 1e-4}
         ]
+
+        # self.regime = [
+        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-3, 'momentum': 0.6},
+        #     {'epoch': 81, 'lr': 5e-3},
+        #     {'epoch': 101, 'lr': 1e-3,},
+        #     {'epoch': 164, 'lr': 1e-4}
+        # ]
+        # self.regime = [
+        #     {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-2, 'momentum': 0.9},
+        #     {'epoch': 41, 'lr': 5e-3},
+        #     {'epoch': 81, 'lr': 1e-3,},
+        #     {'epoch': 101, 'lr': 1e-4}
+        # ]
+        # self.regime = [
+        #     {'epoch': 0, 'optimizer': 'Adam', 'lr': 1e-3},
+        #     {'epoch': 41, 'lr': 5e-4},
+        #     {'epoch': 81, 'lr': 1e-3,},
+        #     {'epoch': 101, 'lr': 1e-4}
+        # ]
+
+        self.regime = {
+            0: {'optimizer': 'Adam', 'lr': 5e-3},
+            101: {'lr': 1e-3},
+            142: {'lr': 5e-4},
+            184: {'lr': 1e-4},
+            220: {'lr': 1e-5}
+        }
 
 
 def resnet_quantized_nbit(**kwargs):
@@ -228,6 +271,6 @@ def resnet_quantized_nbit(**kwargs):
 
     elif dataset == 'cifar10':
         num_classes = num_classes or 10
-        depth = depth or 56
+        depth = depth or 18
         return ResNet_cifar10(num_classes=num_classes,
                               block=BasicBlock, depth=depth)
