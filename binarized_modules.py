@@ -51,6 +51,8 @@ class SqrtHingeLossFunction(Function):
        grad_output.div_(input.numel())
        return grad_output,grad_output
 
+
+#TODO: create a quantization class with a static method to work on this
 def Quantize(tensor,quant_mode='det',  params=None, numBits=8):
     tensor.clamp_(-2**(numBits-1),2**(numBits-1))
     if quant_mode=='det':

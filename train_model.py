@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import torch.optim as optim
 from utils.model_utils import *
 from utils.dataset_utils import *
-from utils.visualizaiton_utils import *
+from utils.visualization_utils import *
 import os
 import time
 from tensorboardX import SummaryWriter

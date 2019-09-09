@@ -63,7 +63,8 @@ def accuracy(output, target, topk=(1,)):
     for k in topk:
         correct_k = correct[:k].view(-1).float().sum(0)
         res.append(correct_k.mul_(100.0 / batch_size))
-    return res
+
+    return res[0]
 
 __optimizers = {
     'SGD': torch.optim.SGD,
@@ -101,8 +102,12 @@ def adjust_optimizer(optimizer, epoch, config):
     return optimizer
 
 def test_model(data_loader, model, criterion,printing=True):
+
+    #switch to eval mode
     print('Evaluating Model...')
     model.eval()
+
+
     n_test = 0.
     n_correct = 0.
     loss = 0.
@@ -115,8 +120,9 @@ def test_model(data_loader, model, criterion,printing=True):
         output = model(inputs)
 
         loss += criterion(output, target).item()
+        acc_ = accuracy(output, target)
 
-        n_correct += accuracy(output, target)[0].cpu().numpy() * n_batch/100.
+        n_correct += accuracy(output, target).item() * n_batch/100.
         n_test += n_batch
 
     test_accuracy= 100*n_correct/n_test
@@ -125,6 +131,9 @@ def test_model(data_loader, model, criterion,printing=True):
     if printing:
         print('Test Accuracy %.3f'% test_accuracy)
         print('Test Loss %.3f'% test_loss)
+
+    #Revert model to training mode before exiting
+    model.train()
 
     return test_loss, test_accuracy
 

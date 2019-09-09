@@ -16,7 +16,6 @@ class Lenet5(nn.Module):
             nn.Conv2d(in_channels=20, out_channels=50, kernel_size=(5,5), padding=2),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=(2, 2), stride=2),
-
         )
 
         self.FC = nn.Sequential(
