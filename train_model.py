@@ -11,6 +11,13 @@ from utils.visualizaiton_utils import *
 import os
 import time
 from tensorboardX import SummaryWriter
+import tensorflow as tf
+
+
+tf.app.flags.define_boolean()
+
+
+
 from quantize import quantize
 cudnn.benchmark = True
 
