@@ -33,8 +33,6 @@ class Lenet5(nn.Module):
         return x
 
 
-
-
 def lenet(**kwargs):
     return Lenet5()
 

@@ -22,7 +22,7 @@ record_interval = 100
 
 criterion = nn.CrossEntropyLoss()
 
-train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=False))
+train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
 
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
