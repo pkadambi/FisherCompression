@@ -9,7 +9,7 @@ from utils.dataset_utils import *
 from utils.visualization_utils import *
 import torch.optim as optim
 import tensorflow as tf
-
+import time as time
 
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
@@ -53,6 +53,8 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 for epoch in range(n_epochs):
     model.train()
     for iter, (inputs, targets) in enumerate(train_loader):
+        start = time.time()
+
         optimizer.zero_grad()
 
         inputs = inputs.cuda()
@@ -68,9 +70,11 @@ for epoch in range(n_epochs):
         lossval = loss.item()
 
 
+        end = time.time()
+        elapsed = end - start
 
         if i%record_interval==0 or i==0:
-            print('Step [%d] | Loss [%.3f] | Acc [%.3f]' % (i, lossval, train_acc))
+            print('Step [%d] | Loss [%.3f] | Acc [%.3f]| Ep Time [%.1f]' % (i, lossval, train_acc, elapsed))
 
         i+=1
 
