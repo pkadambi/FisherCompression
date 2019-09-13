@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
-from quantize import quantize, quantize_grad, QConv2d, QLinear, RangeBN
+from quantize import quantize, QConv2d, QLinear
 from quantized_modules import quantize, QuantizeConv2d, QuantizeLinear
 __all__ = ['resnet_quantized_float_bn']
 

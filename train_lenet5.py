@@ -8,16 +8,30 @@ from utils.model_utils import *
 from utils.dataset_utils import *
 from utils.visualization_utils import *
 import torch.optim as optim
+import tensorflow as tf
+
+
+tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
+tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
+tf.app.flags.DEFINE_integer('n_epochs', 25, 'num epochs' )
+tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
+
+tf.app.flags.DEFINE_boolean('is_quantized', False, 'whether the network is quantized')
+tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
+tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
+
+
+FLAGS = tf.app.flags.FLAGS
 
 #Torch gpu stuff
 cudnn.benchmark = True
 torch.cuda.set_device(0)
 
-batch_size = 128
+batch_size = FLAGS.batch_size
 n_workers = 4
-dataset = 'fashionmnist'
-n_epochs = 25
-record_interval = 100
+dataset = FLAGS.dataset
+n_epochs = FLAGS.n_epochs
+record_interval = FLAGS.record_interval
 
 
 criterion = nn.CrossEntropyLoss()
@@ -37,7 +51,7 @@ model.cuda()
 optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 for epoch in range(n_epochs):
-
+    model.train()
     for iter, (inputs, targets) in enumerate(train_loader):
         optimizer.zero_grad()
 
@@ -60,7 +74,7 @@ for epoch in range(n_epochs):
 
         i+=1
 
-
+    model.eval()
     print('\n*** TESTING ***\n')
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False)
     print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]' % (epoch, test_loss, test_acc))
