@@ -41,7 +41,7 @@ class UniformQuantize(InplaceFunction):
             # max_value = float(input.view(input.size(0), -1).max(-1)[0].mean())
             max_value = y.max(-1)[0].mean(-1)  # C
 
-#
+##
         ctx.noise = noise
 
         if quantize:
