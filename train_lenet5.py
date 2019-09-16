@@ -52,8 +52,9 @@ optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
 for epoch in range(n_epochs):
     model.train()
+    start = time.time()
+
     for iter, (inputs, targets) in enumerate(train_loader):
-        start = time.time()
 
         optimizer.zero_grad()
 
@@ -69,31 +70,17 @@ for epoch in range(n_epochs):
         train_acc = accuracy(output, targets).item()
         lossval = loss.item()
 
-
-        end = time.time()
-        elapsed = end - start
-
         if i%record_interval==0 or i==0:
-            print('Step [%d] | Loss [%.3f] | Acc [%.3f]| Ep Time [%.1f]' % (i, lossval, train_acc, elapsed))
+            print('Step [%d] | Loss [%.3f] | Acc [%.3f]' % (i, lossval, train_acc))
 
         i+=1
 
+    end = time.time()
+    elapsed = end - start
     model.eval()
     print('\n*** TESTING ***\n')
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False)
-    print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]' % (epoch, test_loss, test_acc))
+    print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
 
     print('\n*** EPOCH END ***\n')
-
-
-
-exit()
-
-
-
-
-
-
-
-
 

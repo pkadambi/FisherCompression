@@ -142,6 +142,8 @@ class QuantMeasure(nn.Module):
 
 
     #TODO: add an argument here where you can select between using an absolute minimum and a percentile
+
+    #TODO: This slows down training by a lot, figure out why
     def __init__(self, num_bits=8, momentum=0.1):
         super(QuantMeasure, self).__init__()
         self.register_buffer('running_min', torch.zeros(1))
@@ -177,17 +179,20 @@ class QConv2d(nn.Conv2d):
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.num_bits_grad = num_bits_grad
-        self.quantize_input = QuantMeasure(self.num_bits)
-        self.biprecision = biprecision
         self.is_quantized = is_quantized
+
+        self.quantize_input = QuantMeasure(self.num_bits)
+
+        self.biprecision = biprecision
 
     #TODO: add inputs eta, noise model
     def forward(self, input):
-        qinput = self.quantize_input(input)
+
 
         #HERE: specifcy a way to calculate minimum and maximum for weight
 
         if self.is_quantized:
+            qinput = self.quantize_input(input)
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.weight.min()),
                                max_value=float(self.weight.max()))
@@ -221,16 +226,18 @@ class QLinear(nn.Linear):
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.biprecision = biprecision
-        self.quantize_input = QuantMeasure(self.num_bits)
+
         self.is_quantized = is_quantized
+        self.quantize_input = QuantMeasure(self.num_bits)
 
     def forward(self, input):
+
         qinput = self.quantize_input(input)
-        qweight = quantize(self.weight, num_bits=self.num_bits_weight,
-                           min_value=float(self.weight.min()),
-                           max_value=float(self.weight.max()))
 
         if self.is_quantized:
+            qweight = quantize(self.weight, num_bits=self.num_bits_weight,
+                               min_value=float(self.weight.min()),
+                               max_value=float(self.weight.max()))
             # print(qweight)
             if self.bias is not None:
                 qbias = quantize(self.bias, num_bits=self.num_bits_weight)
