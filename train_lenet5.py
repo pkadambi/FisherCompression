@@ -16,12 +16,20 @@ tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
 tf.app.flags.DEFINE_integer('n_epochs', 25, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
 
-tf.app.flags.DEFINE_boolean('is_quantized', False, 'whether the network is quantized')
+tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
 tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
+tf.app.flags.DEFINE_float('eta', .000001, 'noise eta')
+
+tf.app.flags.DEFINE_string('noise_model', 'NVM', 'type of noise to add None, NVM, or PCM')
+
+tf.app.flags.DEFINE_float('q_min', None, '')
+tf.app.flags.DEFINE_float('q_max', None, '')
 
 
 FLAGS = tf.app.flags.FLAGS
+
+etaval = FLAGS.eta
 
 #Torch gpu stuff
 cudnn.benchmark = True
@@ -61,7 +69,7 @@ for epoch in range(n_epochs):
         inputs = inputs.cuda()
         targets = targets.cuda()
 
-        output = model(inputs)
+        output = model(inputs, eta=etaval)
 
         loss = criterion(output, targets)
         loss.backward()
@@ -79,7 +87,7 @@ for epoch in range(n_epochs):
     elapsed = end - start
     model.eval()
     print('\n*** TESTING ***\n')
-    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False)
+    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
     print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
 
     print('\n*** EPOCH END ***\n')

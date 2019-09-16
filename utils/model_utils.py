@@ -101,7 +101,7 @@ def adjust_optimizer(optimizer, epoch, config):
 
     return optimizer
 
-def test_model(data_loader, model, criterion,printing=True):
+def test_model(data_loader, model, criterion, printing=True, eta=None):
 
     #switch to eval mode
     print('Evaluating Model...')
@@ -117,7 +117,11 @@ def test_model(data_loader, model, criterion,printing=True):
 
         inputs = inputs.cuda()
         target = target.cuda()
-        output = model(inputs)
+
+        if eta is not None:
+            output = model(inputs, eta=eta)
+        else:
+            output = model(inputs)
 
         loss += criterion(output, target).item()
         acc_ = accuracy(output, target)

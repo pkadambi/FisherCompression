@@ -26,7 +26,7 @@ class UniformQuantize(InplaceFunction):
 
     @classmethod
     def forward(cls, ctx, input, num_bits=8, min_value=None, max_value=None, eta = .01,
-                stochastic=False, enforce_true_zero=False, num_chunks=None, out_half=False):
+                noise=None, enforce_true_zero=False, num_chunks=None, out_half=False):
 
         num_chunks = input.shape[0] if num_chunks is None else num_chunks
         if min_value is None or max_value is None:
@@ -41,12 +41,14 @@ class UniformQuantize(InplaceFunction):
             # max_value = float(input.view(input.size(0), -1).max(-1)[0].mean())
             max_value = y.max(-1)[0].mean(-1)  # C
 
+
+        ctx.noise = noise
+
         if quantize:
 
             ctx.num_bits = num_bits
             ctx.min_value = min_value
             ctx.max_value = max_value
-            ctx.stochastic = stochastic
 
             output = input.clone()
 
@@ -68,12 +70,18 @@ class UniformQuantize(InplaceFunction):
                     zero_point = qmax
                 else:
                     zero_point = initial_zero_point
+
                 zero_point = int(zero_point)
-                output.div_(scale).add_(zero_point)
+
+                # output.div_(scale).add_(zero_point)
+                output = (output / scale) + zero_point
+
             else:
-                output.add_(-min_value).div_(scale).add_(qmin)
+                # output.add_(-min_value).div_(scale).add_(qmin)
+                output = (output - min_value) / scale + qmin
 
             output.clamp_(qmin, qmax).round_()  # quantize
+
 
         else:
             # If layer is not quantized, we still need to compute
@@ -81,14 +89,8 @@ class UniformQuantize(InplaceFunction):
             ctx.min_value = min_value
             ctx.max_value = max_value
 
-        if ctx.stochastic:
-            #TODO: implement pcm noise model (add flag to choose between them)
 
-            noise_std = eta * (max_value - min_value)
 
-            noise = output.new(output.shape).normal_(mean=0, std=noise_std)
-
-            output.add_(noise)
 
         #TODO: figure out how this works
         if enforce_true_zero:
@@ -105,7 +107,38 @@ class UniformQuantize(InplaceFunction):
         # straight-through estimator
         grad_input = grad_output
         # return grad_input
-        return grad_input, None, None, None, None, None, None
+        return grad_input, None, None, None, None, None, None, None, None
+
+
+class NoiseInjection(torch.autograd.Function):
+    '''
+        Perform noise injection with straight-through estimator
+    '''
+
+    @staticmethod
+    def forward(ctx, input, eta):
+        # TODO: change this to it's own layer
+        if ctx.noise == 'NVM':
+            noise_std = eta * (max_value - min_value)
+
+            noise = output.new(output.shape).normal_(mean=0, std=noise_std)
+
+            output.add_(noise)
+
+        elif ctx.noise == 'PCM':
+            # TODO: correct implementation of PCM noise model (send email to paul about how to do this)
+            noise_std = eta * (max_value - min_value)
+
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        #straight through estimator
+        grad_input = grad_output.clone()
+        return grad_input
+
+
+
+
 
 
 
@@ -126,8 +159,10 @@ def linear_biprec(input, weight, bias=None, num_bits_grad=None):
     return out1 + out2 - out1.detach()
 
 
-def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, stochastic=False, inplace=False):
-    return UniformQuantize().apply(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
+def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, noise=None, eta=.0,
+             enforce_true_zero=False, out_half=False):
+    return UniformQuantize().apply(x, num_bits, min_value, max_value, eta, noise, enforce_true_zero,
+                                   num_chunks, out_half)
     # quant = UniformQuantize()
     # return quant(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
 
@@ -172,7 +207,8 @@ class QConv2d(nn.Conv2d):
     """docstring for QConv2d."""
 
     def __init__(self, in_channels, out_channels, kernel_size, is_quantized,
-                 stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits=8, num_bits_weight=None, num_bits_grad=None, biprecision=False):
+                 stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits=8,
+                 num_bits_weight=None, num_bits_grad=None, biprecision=False, noise=None):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
 
@@ -184,10 +220,13 @@ class QConv2d(nn.Conv2d):
         self.quantize_input = QuantMeasure(self.num_bits)
 
         self.biprecision = biprecision
+        self.noise = noise
 
-    #TODO: add inputs eta, noise model
-    def forward(self, input):
+    #TODO: add inputs eta, noise model (eta kept in formward
 
+
+    def forward(self, input, eta):
+        #Eta is kept as an input to the fwd function since eta_train=\=eta_inf sometimes
 
         #HERE: specifcy a way to calculate minimum and maximum for weight
 
@@ -195,7 +234,8 @@ class QConv2d(nn.Conv2d):
             qinput = self.quantize_input(input)
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.weight.min()),
-                               max_value=float(self.weight.max()))
+                               max_value=float(self.weight.max()), noise=self.noise, eta=eta)
+
             self.qweight = qweight.clone()
 
             if self.bias is not None:
@@ -221,7 +261,8 @@ class QConv2d(nn.Conv2d):
 class QLinear(nn.Linear):
     """docstring for QConv2d."""
 
-    def __init__(self, in_features, out_features, is_quantized, bias=True, num_bits=8, num_bits_weight=None, num_bits_grad=None, biprecision=False):
+    def __init__(self, in_features, out_features, is_quantized, bias=True, num_bits=8,
+                 num_bits_weight=None, num_bits_grad=None, biprecision=False, stochastic=False, noise=None):
         super(QLinear, self).__init__(in_features, out_features, bias)
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
@@ -229,16 +270,18 @@ class QLinear(nn.Linear):
 
         self.is_quantized = is_quantized
         self.quantize_input = QuantMeasure(self.num_bits)
+        self.noise = noise
 
-    def forward(self, input):
+    def forward(self, input, eta):
 
         qinput = self.quantize_input(input)
 
         if self.is_quantized:
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.weight.min()),
-                               max_value=float(self.weight.max()))
-            # print(qweight)
+                               max_value=float(self.weight.max()), noise=self.noise, eta=eta)
+
+            #TODO: choose whether to quantize bias
             if self.bias is not None:
                 qbias = quantize(self.bias, num_bits=self.num_bits_weight)
             else:
