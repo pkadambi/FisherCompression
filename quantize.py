@@ -1,3 +1,4 @@
+
 import torch
 from torch.autograd.function import InplaceFunction, Function
 import torch.nn as nn
@@ -42,7 +43,14 @@ class UniformQuantize(InplaceFunction):
             max_value = y.max(-1)[0].mean(-1)  # C
 
 ##
+        if FLAGS.q_min is not None:
+            min_value=FLAGS.q_min
+        if FLAGS.q_max is not None:
+            max_value=FLAGS.q_max
+
+
         ctx.noise = noise
+
 
         if quantize:
 
@@ -89,8 +97,13 @@ class UniformQuantize(InplaceFunction):
             ctx.min_value = min_value
             ctx.max_value = max_value
 
+        if ctx.noise and eta>0:
 
+            noise_std = eta * (max_value - min_value)
 
+            noise = output.new(output.shape).normal_(mean=0, std=noise_std)
+
+            output.add_(noise)
 
         #TODO: figure out how this works
         if enforce_true_zero:
@@ -100,6 +113,7 @@ class UniformQuantize(InplaceFunction):
 
         if out_half and num_bits <= 16:
             output = output.half()
+
         return output
 
     @staticmethod
@@ -116,12 +130,16 @@ class NoiseInjection(torch.autograd.Function):
     '''
 
     @staticmethod
-    def forward(ctx, input, eta):
+    def forward(ctx, input, eta, max_value, min_value):
+
         # TODO: change this to it's own layer
+
+        output = input.clone()
+
         if ctx.noise == 'NVM':
             noise_std = eta * (max_value - min_value)
 
-            noise = output.new(output.shape).normal_(mean=0, std=noise_std)
+            noise = output.new(input.shape).normal_(mean=0, std=noise_std)
 
             output.add_(noise)
 
@@ -129,6 +147,7 @@ class NoiseInjection(torch.autograd.Function):
             # TODO: correct implementation of PCM noise model (send email to paul about how to do this)
             noise_std = eta * (max_value - min_value)
 
+        return output
 
     @staticmethod
     def backward(ctx, grad_output):
@@ -136,13 +155,7 @@ class NoiseInjection(torch.autograd.Function):
         grad_input = grad_output.clone()
         return grad_input
 
-
-
-
-
-
-
-def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1, num_bits_grad=None):
+def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
     out1 = F.conv2d(input.detach(), weight, bias,
                     stride, padding, dilation, groups)
     out2 = F.conv2d(input, weight.detach(), bias.detach() if bias is not None else None,
@@ -175,7 +188,6 @@ class QuantMeasure(nn.Module):
 
     """
 
-
     #TODO: add an argument here where you can select between using an absolute minimum and a percentile
 
     #TODO: This slows down training by a lot, figure out why
@@ -188,14 +200,11 @@ class QuantMeasure(nn.Module):
 
     def forward(self, input):
         if self.training:
-            min_value = input.detach().view(
-                input.size(0), -1).min(-1)[0].mean()
-            max_value = input.detach().view(
-                input.size(0), -1).max(-1)[0].mean()
-            self.running_min.mul_(self.momentum).add_(
-                min_value * (1 - self.momentum))
-            self.running_max.mul_(self.momentum).add_(
-                max_value * (1 - self.momentum))
+
+            min_value = input.detach().view(input.size(0), -1).min(-1)[0].mean()
+            max_value = input.detach().view(input.size(0), -1).max(-1)[0].mean()
+            self.running_min.mul_(self.momentum).add_(min_value * (1 - self.momentum))
+            self.running_max.mul_(self.momentum).add_(max_value * (1 - self.momentum))
         else:
             min_value = self.running_min
             max_value = self.running_max
@@ -208,17 +217,15 @@ class QConv2d(nn.Conv2d):
 
     def __init__(self, in_channels, out_channels, kernel_size, is_quantized,
                  stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits=8,
-                 num_bits_weight=None, num_bits_grad=None, biprecision=False, noise=None):
+                 num_bits_weight=None, biprecision=False, noise=None):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
 
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
-        self.num_bits_grad = num_bits_grad
         self.is_quantized = is_quantized
 
         self.quantize_input = QuantMeasure(self.num_bits)
-
         self.biprecision = biprecision
         self.noise = noise
 
@@ -226,15 +233,18 @@ class QConv2d(nn.Conv2d):
 
 
     def forward(self, input, eta):
-        #Eta is kept as an input to the fwd function since eta_train=\=eta_inf sometimes
 
-        #HERE: specifcy a way to calculate minimum and maximum for weight
+        #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
 
         if self.is_quantized:
+
+            import numpy as np
+
             qinput = self.quantize_input(input)
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.weight.min()),
                                max_value=float(self.weight.max()), noise=self.noise, eta=eta)
+
 
             self.qweight = qweight.clone()
 
@@ -244,12 +254,12 @@ class QConv2d(nn.Conv2d):
             else:
                 qbias = None
 
-            if not self.biprecision or self.num_bits_grad is None:
+            if self.biprecision:
+                output = (qinput, qweight, qbias, self.stride,
+                                       self.padding, self.dilation, self.groups)
+            else:
                 output = F.conv2d(qinput, qweight, qbias, self.stride,
                                   self.padding, self.dilation, self.groups)
-            else:
-                output = conv2d_biprec(qinput, qweight, qbias, self.stride,
-                                       self.padding, self.dilation, self.groups, num_bits_grad=self.num_bits_grad)
 
         else:
 
@@ -262,8 +272,9 @@ class QLinear(nn.Linear):
     """docstring for QConv2d."""
 
     def __init__(self, in_features, out_features, is_quantized, bias=True, num_bits=8,
-                 num_bits_weight=None, num_bits_grad=None, biprecision=False, stochastic=False, noise=None):
+                 num_bits_weight=None, biprecision=False, noise=None):
         super(QLinear, self).__init__(in_features, out_features, bias)
+
         self.num_bits = num_bits
         self.num_bits_weight = num_bits_weight or num_bits
         self.biprecision = biprecision
@@ -273,8 +284,6 @@ class QLinear(nn.Linear):
         self.noise = noise
 
     def forward(self, input, eta):
-
-        qinput = self.quantize_input(input)
 
         if self.is_quantized:
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
@@ -287,14 +296,17 @@ class QLinear(nn.Linear):
             else:
                 qbias = None
 
-            if not self.biprecision:
-                output = F.linear(qinput, qweight, qbias)
-
-            else:
+            if self.biprecision:
                 output = linear_biprec(qinput, qweight, qbias, self.num_bits_grad)
+            else:
+                output = F.linear(qinput, qweight, qbias)
 
         else:
 
             output = F.linear(input, self.weight, self.bias)
 
         return output
+
+
+
+

@@ -17,7 +17,6 @@ import tensorflow as tf
 tf.app.flags.define_boolean()
 
 
-
 from quantize import quantize
 cudnn.benchmark = True
 
@@ -54,6 +53,7 @@ criterion = nn.NLLLoss()
 kl_criterion = nn.KLDivLoss()
 logsoftmax = nn.LogSoftmax()
 smfx = nn.Softmax()
+
 if 'cifar' in c.dataset:
     AUGMENT_TRAIN = True
 
@@ -323,7 +323,7 @@ def train_fisher(config, model, optimizer, train_loader, test_loader, valid_load
 
     else:
         best_epoch = 0
-    n_tot_epochs =  best_epoch+c.n_regularized_epochs
+    n_tot_epochs =  best_epoch + c.n_regularized_epochs
 
     #plot loss and accuracy curves
     tr_start = time.time()

@@ -19,12 +19,19 @@ tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between
 tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
 tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
-tf.app.flags.DEFINE_float('eta', .000001, 'noise eta')
+tf.app.flags.DEFINE_float('eta', .0, 'noise eta')
 
-tf.app.flags.DEFINE_string('noise_model', 'NVM', 'type of noise to add None, NVM, or PCM')
+tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM, or PCM')
 
-tf.app.flags.DEFINE_float('q_min', None, '')
-tf.app.flags.DEFINE_float('q_max', None, '')
+tf.app.flags.DEFINE_float('q_min', None, 'minimum quant value')
+tf.app.flags.DEFINE_float('q_max', None, 'maximum quant value')
+
+
+'''
+
+Redefine any flags here if you want to run a sweep
+
+'''
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -91,4 +98,42 @@ for epoch in range(n_epochs):
     print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
 
     print('\n*** EPOCH END ***\n')
+
+exit()
+
+# sweep eta
+
+etavals = np.array([.01, .1, .3, .5, .75, 1.25, 1.75, 2.5, 3.5, 10., 15, 25, 50])
+n_etavals = len(etavals)
+n_mc_iters = 20
+
+test_accs = np.zeros([n_etavals, n_mc_iters])
+
+
+for i, etaval_ in enumerate(etavals):
+
+    for k in range(n_mc_iters):
+
+        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval_)
+        # print(test_acc)
+        test_accs[i, k] = test_acc
+
+
+import matplotlib.pyplot as plt
+
+
+plt.title('Eta vs Acc for Baseline (not retrained)')
+plt.grid(True)
+plt.plot(etavals, np.mean(test_accs, axis=1), '-bo')
+plt.xlabel('Eta')
+plt.ylabel('Accuracy')
+plt.show()
+
+
+
+
+
+
+
+
 
