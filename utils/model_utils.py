@@ -8,6 +8,9 @@ import logging.config
 from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
 from bokeh.layouts import column
+
+
+
 def quantizer_levels_from_wts(model, n_levels):
     """
     This function takes in a model and tries to find the levels of the quantizer by performing k-means on the weights

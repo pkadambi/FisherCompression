@@ -10,6 +10,7 @@ from utils.visualization_utils import *
 import torch.optim as optim
 import tensorflow as tf
 import time as time
+import numpy as np
 
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
@@ -18,13 +19,16 @@ tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between
 
 tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
-tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
+tf.app.flags.DEFINE_integer('n_bits_wt', 2, 'number of bits weight')
 tf.app.flags.DEFINE_float('eta', .0, 'noise eta')
 
 tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM, or PCM')
 
 tf.app.flags.DEFINE_float('q_min', None, 'minimum quant value')
 tf.app.flags.DEFINE_float('q_max', None, 'maximum quant value')
+tf.app.flags.DEFINE_integer('n_runs', 5, 'number of times to train network')
+
+tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
 
 '''
@@ -59,45 +63,73 @@ train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, sh
 test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True,
                                           num_workers=n_workers, pin_memory=True)
 
-i=0
-model = models.Lenet5()
-model.cuda()
 
-optimizer = optim.Adam(model.parameters(), lr=1e-3)
 
-for epoch in range(n_epochs):
-    model.train()
-    start = time.time()
+n_runs = FLAGS.n_runs
+test_accs=[]
 
-    for iter, (inputs, targets) in enumerate(train_loader):
 
-        optimizer.zero_grad()
+for k in range(n_runs):
+    i=0
+    model = models.Lenet5()
+    model.cuda()
 
-        inputs = inputs.cuda()
-        targets = targets.cuda()
+    optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
-        output = model(inputs, eta=etaval)
+    for epoch in range(n_epochs):
+        model.train()
+        start = time.time()
 
-        loss = criterion(output, targets)
-        loss.backward()
-        optimizer.step()
+        for iter, (inputs, targets) in enumerate(train_loader):
 
-        train_acc = accuracy(output, targets).item()
-        lossval = loss.item()
+            optimizer.zero_grad()
 
-        if i%record_interval==0 or i==0:
-            print('Step [%d] | Loss [%.3f] | Acc [%.3f]' % (i, lossval, train_acc))
+            inputs = inputs.cuda()
+            targets = targets.cuda()
 
-        i+=1
+            output = model(inputs, eta=etaval)
 
-    end = time.time()
-    elapsed = end - start
-    model.eval()
-    print('\n*** TESTING ***\n')
+            loss = criterion(output, targets)
+            loss.backward()
+            optimizer.step()
+
+            train_acc = accuracy(output, targets).item()
+            lossval = loss.item()
+
+            if i%record_interval==0 or i==0:
+                print('Step [%d] | Loss [%.3f] | Acc [%.3f]' % (i, lossval, train_acc))
+
+            i+=1
+
+        end = time.time()
+        elapsed = end - start
+        model.eval()
+        print('\n*** TESTING ***\n')
+        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+        print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
+        # print(model.conv1.quantize_input.running_min)
+        # print(model.conv1.quantize_input.running_max)
+
+        # print(model.conv1.min_value)
+        # print(model.conv1.max_value)
+        # print(np.ravel(model.conv1.qweight.detach().cpu().numpy()))
+        # exit()
+        print('\n*** EPOCH END ***\n')
+
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
-    print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
+    test_accs.append(test_acc)
 
-    print('\n*** EPOCH END ***\n')
+    print('************* FINAL ACCURACY *************')
+    print('TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]' % (test_loss, test_acc))
+    print('************* END *************')
+
+
+
+
+print(test_accs)
+print('Avg accuracy: %.3f +\- %.4f' % (np.mean(test_accs), np.std(test_accs)))
+print('Num bits weight '+str(FLAGS.n_bits_wt))
+print('Num bits activation '+str(FLAGS.n_bits_act))
 
 exit()
 
