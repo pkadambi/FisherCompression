@@ -6,3 +6,7 @@ utils/__pycache__/
 __pycache__/
 checkpoints/
 junk.py
+junk/
+SavedModels
+
+

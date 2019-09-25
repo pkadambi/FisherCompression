@@ -22,7 +22,8 @@ def _mean(p, dim):
         return _mean(p.transpose(0, dim), 0).transpose(0, dim)
 
 
-class UniformQuantize(InplaceFunction):
+# class UniformQuantize(InplaceFunction):
+class UniformQuantize(torch.autograd.Function):
 # class UniformQuantize(nn.Module):
 
     @classmethod
@@ -52,7 +53,7 @@ class UniformQuantize(InplaceFunction):
             ctx.min_value = min_value
             ctx.max_value = max_value
 
-            output = input.clone()
+            q_weight = input.clone()
 
             qmin = 0.
             qmax = 2. ** num_bits - 1.
@@ -76,37 +77,52 @@ class UniformQuantize(InplaceFunction):
                 zero_point = int(zero_point)
 
                 # output.div_(scale).add_(zero_point)
-                output = (output / scale) + zero_point
+                q_weight = (q_weight / scale) + zero_point
 
             else:
                 # output.add_(-min_value).div_(scale).add_(qmin)
-                output = (output - min_value) / scale + qmin
+                q_weight = (q_weight - min_value) / scale + qmin
 
-            output.clamp_(qmin, qmax).round_()  # quantize
+            q_weight.clamp_(qmin, qmax).round_()  # quantize
             ctx.min_value = min_value
             ctx.max_value = max_value
 
             #TODO: figure out how this works
             if FLAGS.enforce_zero:
-                output.add_(-zero_point).mul_(scale)  # dequantize
+                q_weight.add_(-zero_point).mul_(scale)  # dequantize
             else:
-                output.add_(-qmin).mul_(scale).add_(min_value)  # dequantize
+                q_weight.add_(-qmin).mul_(scale).add_(min_value)  # dequantize
 
             if out_half and num_bits <= 16:
-                output = output.half()
+                q_weight = q_weight.half()
 
         else:
             # If layer is not quantized, we still need to compute
             # some type of min-max statistics on the weight kernel for noising
+            q_weight=input
 
-            output=input
 
-        return output
+        if FLAGS.regularization is not None:
+            pert = input - q_weight
+            ctx.save_for_backward(pert)
+
+
+        return q_weight
 
     @staticmethod
     def backward(ctx, grad_output):
         # straight-through estimator
-        grad_input = grad_output
+
+        if FLAGS.regularization=='l2':
+            pert = ctx.saved_tensors[0]
+            grad_input = grad_output + FLAGS.gamma * 2 * pert
+        elif FLAGS.regularization=='fisher':
+            pert = ctx.saved_tensors[0]
+            #TODO: incorporate diagonal load amount in a flag
+            grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + 0.005 * pert)
+        else:
+            grad_input = grad_output
+
         # return grad_input
         return grad_input, None, None, None, None, None, None, None, None
 
@@ -280,6 +296,9 @@ class QConv2d(nn.Conv2d):
 
 
             self.qweight = qweight.clone()
+
+            #TODO: ADD NOISING FUNCTION HERE
+
 
             if self.bias is not None:
                 qbias = quantize(self.bias, num_bits=self.num_bits_weight)

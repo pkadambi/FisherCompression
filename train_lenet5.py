@@ -11,6 +11,7 @@ import torch.optim as optim
 import tensorflow as tf
 import time as time
 import numpy as np
+import os
 
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
@@ -26,10 +27,18 @@ tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM,
 
 tf.app.flags.DEFINE_float('q_min', None, 'minimum quant value')
 tf.app.flags.DEFINE_float('q_max', None, 'maximum quant value')
-tf.app.flags.DEFINE_integer('n_runs', 5, 'number of times to train network')
+tf.app.flags.DEFINE_integer('n_runs', 1, 'number of times to train network')
 
 tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
+tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use')
+tf.app.flags.DEFINE_float('gamma', 0.01, 'gamma value')
+
+tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
+tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
+
+
+FLAGS = tf.app.flags.FLAGS
 
 '''
 
@@ -38,7 +47,37 @@ Redefine any flags here if you want to run a sweep
 '''
 
 
-FLAGS = tf.app.flags.FLAGS
+
+
+
+'''
+
+Config file save information
+
+'''
+
+config_str = ''
+config_str += 'Dataset:\t' + FLAGS.dataset + '\n'
+config_str += 'Batch Size:\t' + str(FLAGS.batch_size) + '\n'
+config_str += 'N Epochs:\t' + str(FLAGS.n_epochs) + '\n'
+
+
+config_str += 'Is Quatnized:\t' + str(FLAGS.is_quantized) + '\n'
+
+if FLAGS.is_quantized:
+    config_str += 'Q Min:\t' + str(FLAGS.q_min) + '\n'
+    config_str += 'Q Max:\t' + str(FLAGS.q_max) + '\n'
+    config_str += 'N Bits Act:\t' + str(FLAGS.n_bits_act) + '\n'
+    config_str += 'N Bits Wt:\t' + str(FLAGS.n_bits_wt) + '\n'
+
+
+config_str += 'Regularizer: \t' + str(FLAGS.regularization) + '\n'
+if FLAGS.regularization is not None:
+    config_str += '' + str(FLAGS.gamma) + '\n'
+
+if FLAGS.noise_model is not None:
+    config_str += '' + FLAGS.noise_model + '\n'
+
 
 etaval = FLAGS.eta
 
@@ -64,17 +103,26 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuf
                                           num_workers=n_workers, pin_memory=True)
 
 
-
 n_runs = FLAGS.n_runs
 test_accs=[]
+
 
 
 for k in range(n_runs):
     i=0
     model = models.Lenet5()
     model.cuda()
-
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
+
+
+    if FLAGS.loadpath is not None:
+
+        checkpoint = torch.load(FLAGS.loadpath)
+        model.load_state_dict(checkpoint['model_state_dict'])
+        optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+        print(' RESTORED MODEL TEST ACCURACY: \t %.3f' % (test_acc))
+        # exit()
 
     for epoch in range(n_epochs):
         model.train()
@@ -82,7 +130,6 @@ for k in range(n_runs):
 
         for iter, (inputs, targets) in enumerate(train_loader):
 
-            optimizer.zero_grad()
 
             inputs = inputs.cuda()
             targets = targets.cuda()
@@ -90,6 +137,8 @@ for k in range(n_runs):
             output = model(inputs, eta=etaval)
 
             loss = criterion(output, targets)
+
+            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
@@ -116,6 +165,8 @@ for k in range(n_runs):
         # exit()
         print('\n*** EPOCH END ***\n')
 
+
+
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
     test_accs.append(test_acc)
 
@@ -123,7 +174,21 @@ for k in range(n_runs):
     print('TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]' % (test_loss, test_acc))
     print('************* END *************')
 
+SAVEPATH = FLAGS.savepath
+os.makedirs(SAVEPATH, exist_ok=True)
+config_path = os.path.join(SAVEPATH, 'config_str.txt')
+model_path = os.path.join(SAVEPATH, 'lenet')
 
+f = open(config_path, 'w+')
+f.write(config_str)
+f.flush()
+f.close()
+
+torch.save({
+'epoch': epoch + 1,
+'model_state_dict': model.state_dict(),
+'optimizer_state_dict': optimizer.state_dict(),
+'loss': loss}, model_path)
 
 
 print(test_accs)
