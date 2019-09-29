@@ -180,6 +180,16 @@ def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, noi
     # quant = UniformQuantize()
     # return quant(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
 
+def tensor_clamp(input_tensor, min_value_tensor, max_value_tensor):
+    '''
+    This function re-implements the tensor.clamp() since tensor.clamp(min,max)
+    requires that min and max are numbers (not tensors)
+
+    :return:
+    '''
+
+    return torch.max(torch.min(input_tensor, max_value_tensor), min_value_tensor)
+
 
 
 class QuantMeasure(nn.Module):
@@ -288,7 +298,8 @@ class QConv2d(nn.Conv2d):
                 self.max_value = self.weight.max()
 
 
-            self.weight.clamp(self.min_value, self.max_value)
+            # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
+            self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),
@@ -351,6 +362,9 @@ class QLinear(nn.Linear):
                 self.max_value = FLAGS.q_max
             else:
                 self.max_value = self.weight.max()
+
+            # self.weight.data.clamp(self.min_value, self.max_value)
+            self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),

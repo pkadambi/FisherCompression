@@ -15,12 +15,12 @@ import os
 
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 25, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 100, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
 
 tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
-tf.app.flags.DEFINE_integer('n_bits_wt', 2, 'number of bits weight')
+tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
 tf.app.flags.DEFINE_float('eta', .0, 'noise eta')
 
 tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM, or PCM')
@@ -36,9 +36,15 @@ tf.app.flags.DEFINE_float('gamma', 0.01, 'gamma value')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
+tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
+
 
 
 FLAGS = tf.app.flags.FLAGS
+
+
+n_bits_wt = FLAGS.n_bits_wt
+n_bits_act = FLAGS.n_bits_act
 
 '''
 
@@ -47,22 +53,20 @@ Redefine any flags here if you want to run a sweep
 '''
 
 
-
-
-
 '''
 
 Config file save information
 
 '''
 
+#Config string
 config_str = ''
 config_str += 'Dataset:\t' + FLAGS.dataset + '\n'
 config_str += 'Batch Size:\t' + str(FLAGS.batch_size) + '\n'
 config_str += 'N Epochs:\t' + str(FLAGS.n_epochs) + '\n'
 
 
-config_str += 'Is Quatnized:\t' + str(FLAGS.is_quantized) + '\n'
+config_str += 'Is Quantized:\t' + str(FLAGS.is_quantized) + '\n'
 
 if FLAGS.is_quantized:
     config_str += 'Q Min:\t' + str(FLAGS.q_min) + '\n'
@@ -77,6 +81,13 @@ if FLAGS.regularization is not None:
 
 if FLAGS.noise_model is not None:
     config_str += '' + FLAGS.noise_model + '\n'
+
+
+#Save path
+if not FLAGS.debug and FLAGS.savepath is None:
+    SAVEPATH = './SavedModels/Lenet/%dba_%dbw/' % (n_bits_act, n_bits_wt)
+elif not FLAGS.debug:
+    SAVEPATH = FLAGS.savepath
 
 
 etaval = FLAGS.eta
@@ -107,22 +118,21 @@ n_runs = FLAGS.n_runs
 test_accs=[]
 
 
-
 for k in range(n_runs):
     i=0
     model = models.Lenet5()
     model.cuda()
     optimizer = optim.Adam(model.parameters(), lr=1e-4)
 
+    print('\n\n\n********** RUN %d **********\n' % k)
 
     if FLAGS.loadpath is not None:
-
-        checkpoint = torch.load(FLAGS.loadpath)
+        loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k))
+        checkpoint = torch.load(loadpath)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         print(' RESTORED MODEL TEST ACCURACY: \t %.3f' % (test_acc))
-        # exit()
 
     for epoch in range(n_epochs):
         model.train()
@@ -174,28 +184,43 @@ for k in range(n_runs):
     print('TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]' % (test_loss, test_acc))
     print('************* END *************')
 
-SAVEPATH = FLAGS.savepath
-os.makedirs(SAVEPATH, exist_ok=True)
-config_path = os.path.join(SAVEPATH, 'config_str.txt')
-model_path = os.path.join(SAVEPATH, 'lenet')
 
-f = open(config_path, 'w+')
-f.write(config_str)
+    j=0
+    while os.path.exists(os.path.join(SAVEPATH, 'Run%d' % j)):
+        j+=1
+
+    SAVEPATH_run = os.path.join(SAVEPATH, 'Run%d' % j)
+
+    os.makedirs(SAVEPATH_run, exist_ok=True)
+    config_path = os.path.join(SAVEPATH_run, 'config_str.txt')
+    model_path = os.path.join(SAVEPATH_run, 'lenet')
+
+    f = open(config_path, 'w+')
+
+    config_str += 'Test Accuracy: %.3f' % test_acc
+
+    f.write(config_str)
+    f.flush()
+    f.close()
+
+    torch.save({
+    'epoch': epoch + 1,
+    'model_state_dict': model.state_dict(),
+    'optimizer_state_dict': optimizer.state_dict(),
+    'loss': loss}, model_path)
+
+results_str = config_str + '\n******************************\n'
+print(test_accs)
+results_str += 'Avg accuracy: %.3f +\- %.4f' % (np.mean(test_accs), np.std(test_accs)) + '\n'
+results_str += 'Num bits weight ' + str(n_bits_wt) + '\n'
+results_str += 'Num bits activation ' + str(n_bits_act) + '\n'
+print(results_str)
+
+SAVEPATH_results = os.path.join(SAVEPATH, 'results.txt')
+f = open(SAVEPATH_results, 'w+')
+f.write(results_str )
 f.flush()
 f.close()
-
-torch.save({
-'epoch': epoch + 1,
-'model_state_dict': model.state_dict(),
-'optimizer_state_dict': optimizer.state_dict(),
-'loss': loss}, model_path)
-
-
-print(test_accs)
-print('Avg accuracy: %.3f +\- %.4f' % (np.mean(test_accs), np.std(test_accs)))
-print('Num bits weight '+str(FLAGS.n_bits_wt))
-print('Num bits activation '+str(FLAGS.n_bits_act))
-
 exit()
 
 # sweep eta
