@@ -230,8 +230,9 @@ class QuantMeasure(nn.Module):
 
             else:
 
-                std = torch.std(input.detach().view(-1))
-                mean = torch.mean(input.detach().view(-1))
+                # std = torch.std(input.detach().view(-1))
+                # mean = torch.mean(input.detach()
+                # .view(-1))
 
                 # min_value = mean - 3 * std
                 # max_value = mean + 3 * std

@@ -40,6 +40,8 @@ tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 
+
+
 tf.app.flags.DEFINE_float('lr', 1e-3, 'learning rate')
 
 
@@ -83,16 +85,22 @@ config_str += 'Regularizer: \t' + str(FLAGS.regularization) + '\n'
 if FLAGS.regularization is not None:
     config_str += '' + str(FLAGS.gamma) + '\n'
     config_str += '' + str(FLAGS.diag_load_const) + '\n'
+    reg_string = FLAGS.regularization
+else:
+    reg_string = ''
 if FLAGS.noise_model is not None:
     config_str += '' + FLAGS.noise_model + '\n'
 
 
 #Save path
 if not FLAGS.debug and FLAGS.savepath is None:
-    SAVEPATH = './SavedModels/Lenet/%dba_%dbw_%s/' % (n_bits_act, n_bits_wt, FLAGS.regularization)
+
+    SAVEPATH = './SavedModels/Lenet/%dba_%dbw/' % (n_bits_act, n_bits_wt)
+
+    if reg_string is not '':
+        SAVEPATH += '_' + reg_string
 elif not FLAGS.debug:
     SAVEPATH = FLAGS.savepath
-
 etaval = FLAGS.eta
 
 #Torch gpu stuff
@@ -214,7 +222,7 @@ for k in range(n_runs):
     'loss': loss}, model_path)
 
 results_str = config_str + '\n******************************\n'
-print(test_accs)
+results_str += 'Accs: \t'+ str(test_accs) + '\n'
 results_str += 'Avg accuracy: %.3f +\- %.4f' % (np.mean(test_accs), np.std(test_accs)) + '\n'
 results_str += 'Num bits weight ' + str(n_bits_wt) + '\n'
 results_str += 'Num bits activation ' + str(n_bits_act) + '\n'
