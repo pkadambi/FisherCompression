@@ -115,11 +115,11 @@ class UniformQuantize(torch.autograd.Function):
 
         if FLAGS.regularization=='l2':
             pert = ctx.saved_tensors[0]
-            grad_input = grad_output + FLAGS.gamma * 2 * pert
+            grad_input = grad_output + FLAGS.gamma * FLAGS.diag_load_const * 2 * pert
         elif FLAGS.regularization=='fisher':
             pert = ctx.saved_tensors[0]
             #TODO: incorporate diagonal load amount in a flag
-            grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + 0.005 * pert)
+            grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + FLAGS.diag_load_const * pert)
         else:
             grad_input = grad_output
 
@@ -210,6 +210,7 @@ class QuantMeasure(nn.Module):
         self.num_bits = num_bits
 
     def forward(self, input):
+
         if self.training:
             # std = torch.std(input.detach().view(-1))
             # mean = torch.mean(input.detach().view(-1))
@@ -224,14 +225,14 @@ class QuantMeasure(nn.Module):
 
             if self.num_bits<=2:
 
-                min_value=FLAGS.q_min
-                max_value=FLAGS.q_max
+                min_value = -.5
+                max_value = .5
 
             else:
-                #
-                # std = torch.std(input.detach().view(-1))
-                # mean = torch.mean(input.detach().view(-1))
-                #
+
+                std = torch.std(input.detach().view(-1))
+                mean = torch.mean(input.detach().view(-1))
+
                 # min_value = mean - 3 * std
                 # max_value = mean + 3 * std
 
@@ -271,6 +272,12 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
         self.noise = noise
 
+        if FLAGS.q_min is not None:
+            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+
+        if FLAGS.q_max is not None:
+            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+
     #TODO: add inputs eta, noise model (eta kept in formward
 
 
@@ -287,19 +294,16 @@ class QConv2d(nn.Conv2d):
                 qinput = input
 
 
-            if FLAGS.q_min is not None:
-                self.min_value = FLAGS.q_min
-            else:
+            if FLAGS.q_min is None:
                 self.min_value = self.weight.min()
+                print(self.min_value)
 
-            if FLAGS.q_max is not None:
-                self.max_value = FLAGS.q_max
-            else:
+            if FLAGS.q_max is None:
                 self.max_value = self.weight.max()
 
 
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
-            self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
+            # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),
@@ -345,6 +349,12 @@ class QLinear(nn.Linear):
 
         self.noise = noise
 
+        if FLAGS.q_min is not None:
+            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+
+        if FLAGS.q_max is not None:
+            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+
     def forward(self, input, eta):
 
         if self.is_quantized:
@@ -353,18 +363,14 @@ class QLinear(nn.Linear):
             else:
                 qinput = input
 
-            if FLAGS.q_min is not None:
-                self.min_value = FLAGS.q_min
-            else:
+            if FLAGS.q_min is None:
                 self.min_value = self.weight.min()
 
-            if FLAGS.q_max is not None:
-                self.max_value = FLAGS.q_max
-            else:
+            if FLAGS.q_max is None:
                 self.max_value = self.weight.max()
 
             # self.weight.data.clamp(self.min_value, self.max_value)
-            self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
+            # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
             qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),

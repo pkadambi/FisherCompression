@@ -31,13 +31,16 @@ tf.app.flags.DEFINE_integer('n_runs', 1, 'number of times to train network')
 
 tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
-tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use')
-tf.app.flags.DEFINE_float('gamma', 0.01, 'gamma value')
+tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2` or `fisher`')
+
+tf.app.flags.DEFINE_float('gamma', 0.005, 'gamma value')
+tf.app.flags.DEFINE_float('diag_load_const', 0.005, 'diagonal loading constant')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 
+tf.app.flags.DEFINE_float('lr', 1e-3, 'learning rate')
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -64,6 +67,7 @@ config_str = ''
 config_str += 'Dataset:\t' + FLAGS.dataset + '\n'
 config_str += 'Batch Size:\t' + str(FLAGS.batch_size) + '\n'
 config_str += 'N Epochs:\t' + str(FLAGS.n_epochs) + '\n'
+config_str += 'Learning Rate:\t' + str(FLAGS.lr) + '\n'
 
 
 config_str += 'Is Quantized:\t' + str(FLAGS.is_quantized) + '\n'
@@ -78,17 +82,16 @@ if FLAGS.is_quantized:
 config_str += 'Regularizer: \t' + str(FLAGS.regularization) + '\n'
 if FLAGS.regularization is not None:
     config_str += '' + str(FLAGS.gamma) + '\n'
-
+    config_str += '' + str(FLAGS.diag_load_const) + '\n'
 if FLAGS.noise_model is not None:
     config_str += '' + FLAGS.noise_model + '\n'
 
 
 #Save path
 if not FLAGS.debug and FLAGS.savepath is None:
-    SAVEPATH = './SavedModels/Lenet/%dba_%dbw/' % (n_bits_act, n_bits_wt)
+    SAVEPATH = './SavedModels/Lenet/%dba_%dbw_%s/' % (n_bits_act, n_bits_wt, FLAGS.regularization)
 elif not FLAGS.debug:
     SAVEPATH = FLAGS.savepath
-
 
 etaval = FLAGS.eta
 
@@ -122,12 +125,12 @@ for k in range(n_runs):
     i=0
     model = models.Lenet5()
     model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr)
 
     print('\n\n\n********** RUN %d **********\n' % k)
 
     if FLAGS.loadpath is not None:
-        loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k))
+        loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k), 'lenet')
         checkpoint = torch.load(loadpath)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -197,9 +200,10 @@ for k in range(n_runs):
 
     f = open(config_path, 'w+')
 
-    config_str += 'Test Accuracy: %.3f' % test_acc
 
     f.write(config_str)
+    f.flush()
+    f.write('Test Accuracy: %.3f' % test_acc)
     f.flush()
     f.close()
 
