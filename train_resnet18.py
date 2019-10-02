@@ -59,7 +59,11 @@ tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Resnet18/FP/Run0/resnet
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
+'''
 
+NOTE: this line must be after the import statements, since ResNet_cifar10 requires 
+
+'''
 from models.resnet_quantized import ResNet_cifar10
 
 FLAGS = tf.app.flags.FLAGS
@@ -175,7 +179,7 @@ for k in range(n_runs):
     model = ResNet_cifar10()
     # exit()
     model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr)
+    optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
     # print(model.conv1.quantize_input)
     # exit()
     print('\n\n\n********** RUN %d **********\n' % k)

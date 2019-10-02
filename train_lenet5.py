@@ -1,18 +1,6 @@
-from data import get_dataset
-import torch.nn as nn
-import torch.backends.cudnn as cudnn
-from preprocess import get_transform
-import models
-import matplotlib.pyplot as plt
-from utils.model_utils import *
-from utils.dataset_utils import *
-from utils.visualization_utils import *
-from torch.autograd import Variable
-import torch.optim as optim
+
 import tensorflow as tf
-import time as time
-import numpy as np
-import os
+
 
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
@@ -29,14 +17,14 @@ tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM,
 
 tf.app.flags.DEFINE_float('q_min', None, 'minimum quant value')
 tf.app.flags.DEFINE_float('q_max', None, 'maximum quant value')
-tf.app.flags.DEFINE_integer('n_runs', 1, 'number of times to train network')
+tf.app.flags.DEFINE_integer('n_runs', 5, 'number of times to train network')
 
 tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
-tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` or `distillation`')
+tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` `distillation` or `inv_fisher`')
 
 tf.app.flags.DEFINE_float('gamma', 0.005, 'gamma value')
-tf.app.flags.DEFINE_float('diag_load_const', 0.005, 'diagonal loading constant')
+tf.app.flags.DEFINE_float('diag_load_const', 5e-5, 'diagonal loading constant')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
@@ -49,8 +37,20 @@ tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', '
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
-
-
+import time as time
+import numpy as np
+import os
+from data import get_dataset
+import torch.nn as nn
+import torch.backends.cudnn as cudnn
+from preprocess import get_transform
+import models
+import matplotlib.pyplot as plt
+from utils.model_utils import *
+from utils.dataset_utils import *
+from utils.visualization_utils import *
+from torch.autograd import Variable
+import torch.optim as optim
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -85,6 +85,7 @@ config_str += 'Is Quantized:\t' + str(FLAGS.is_quantized) + '\n'
 fisher = FLAGS.regularization=='fisher'
 l2 = FLAGS.regularization=='l2'
 distillation = FLAGS.regularization=='distillation'
+inv_fisher = FLAGS.regularization=='inv_fisher'
 
 if FLAGS.is_quantized:
     config_str += 'Q Min:\t' + str(FLAGS.q_min) + '\n'
@@ -95,7 +96,7 @@ if FLAGS.is_quantized:
 
 config_str += 'Regularizer: \t' + str(FLAGS.regularization) + '\n'
 
-if FLAGS.regularization == 'fisher' or FLAGS.regularization=='l2':
+if FLAGS.regularization == 'fisher' or FLAGS.regularization=='l2' or FLAGS.regularization=='inf_fisher':
     config_str += 'Diag Load Const:\t' + str(FLAGS.diag_load_const) + '\n'
     config_str += 'Gamma:\t' + str(FLAGS.gamma) + '\n'
     reg_string = FLAGS.regularization
@@ -218,7 +219,7 @@ for k in range(n_runs):
             loss.backward()
 
             #fisher loss without messing up gradient flow
-            if fisher or l2:
+            if fisher or l2 or inv_fisher:
                 for layer in model.modules():
                     with torch.no_grad():
                         if hasattr(layer, 'weight'):
@@ -232,7 +233,26 @@ for k in range(n_runs):
                             elif l2:
                                 layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
                                 layer.bias.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertb
+
+                            elif inv_fisher:
+                                FIM_diag = layer.weight.grad * layer.weight.grad + FLAGS.diag_load_const
+                                FIM_diag_bias = layer.bias.grad * layer.bias.grad + FLAGS.diag_load_const
+                                # print('Max')
+                                # print(torch.topk(FIM_diag.view(-1), 100)[0])
+                                # print('Min')
+                                # print(torch.topk(FIM_diag.view(-1), 100, largest=False)[0])
+                                inv_FIM = (1/FIM_diag) * FLAGS.diag_load_const
+                                inv_FIM_bias = (1/FIM_diag_bias) * FLAGS.diag_load_const
+                                # print('Max')
+                                # print(torch.topk(inv_FIM.view(-1), 100)[0])
+                                # print('Min')
+                                # print(torch.topk(inv_FIM.view(-1), 100, largest=False)[0])
+
+
+                                layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
+                                layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
             # exit()
+
             optimizer.step()
 
             train_acc = accuracy(output, targets).item()

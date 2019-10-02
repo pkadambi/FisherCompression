@@ -21,13 +21,7 @@ def loss_fn_kd(student_logits, teacher_logits, T):
     """
 
     teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
-    # print(teacher_soft_logits[0,:])
-    # print(teacher_soft_logits[5,:])
-    # print(teacher_soft_logits[55,:])
-    # print(teacher_soft_logits[66,:])
-    # print(teacher_soft_logits[77,:])
-    # print(teacher_soft_logits[88,:])
-    # exit()
+
     teacher_soft_logits = teacher_soft_logits.float()
     student_soft_logits = F.log_softmax(student_logits/T, dim=1)
     KD_loss = nn.KLDivLoss(reduction='batchmean')(student_soft_logits, teacher_soft_logits)
