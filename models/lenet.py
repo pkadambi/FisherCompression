@@ -8,10 +8,10 @@ FLAGS = tf.app.flags.FLAGS
 
 class Lenet5(nn.Module):
 
-    def __init__(self):
+    def __init__(self, is_quantized):
         super(Lenet5, self).__init__()
 
-        self.is_quantized = FLAGS.is_quantized
+        self.is_quantized = is_quantized
         noise = FLAGS.noise_model
         n_bits_wt = FLAGS.n_bits_wt
         n_bits_act = FLAGS.n_bits_act

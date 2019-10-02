@@ -2,7 +2,6 @@ from data import get_dataset
 import torch.nn as nn
 import torch.backends.cudnn as cudnn
 from preprocess import get_transform
-import models
 import matplotlib.pyplot as plt
 from utils.model_utils import *
 from utils.dataset_utils import *
@@ -14,15 +13,26 @@ import time as time
 import numpy as np
 import os
 
-tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
+'''
+
+n epochs = 300
+cosine decay rate
+weight decay
+
+'''
+
+tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 25, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 100, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
+tf.app.flags.DEFINE_float('weight_decay', 1e-4, 'weight decay value')
+
 tf.app.flags.DEFINE_float('lr', 1e-3, 'learning rate')
 
-tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
-tf.app.flags.DEFINE_integer('n_bits_act', 8, 'number of bits activation')
-tf.app.flags.DEFINE_integer('n_bits_wt', 8, 'number of bits weight')
+# tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
+tf.app.flags.DEFINE_boolean('is_quantized', False, 'whether the network is quantized')
+tf.app.flags.DEFINE_integer('n_bits_act', 32, 'number of bits activation')
+tf.app.flags.DEFINE_integer('n_bits_wt', 32, 'number of bits weight')
 tf.app.flags.DEFINE_float('eta', .0, 'noise eta')
 
 tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM, or PCM')
@@ -45,11 +55,12 @@ tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 
 #Distillation Params
-tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
+tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Resnet18/FP/Run0/resnet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
 
+from models.resnet_quantized import ResNet_cifar10
 
 FLAGS = tf.app.flags.FLAGS
 
@@ -116,7 +127,7 @@ if FLAGS.noise_model is not None:
 #Save path
 if not FLAGS.debug and FLAGS.savepath is None:
 
-    SAVEPATH = './SavedModels/Lenet/%dba_%dbw' % (n_bits_act, n_bits_wt)
+    SAVEPATH = './SavedModels/Resnet18/%dba_%dbw' % (n_bits_act, n_bits_wt)
     if reg_string is not '':
         SAVEPATH += '_' + reg_string
     SAVEPATH += '/'
@@ -161,7 +172,8 @@ test_accs=[]
 
 for k in range(n_runs):
     i=0
-    model = models.Lenet5(is_quantized=FLAGS.is_quantized)
+    model = ResNet_cifar10()
+    # exit()
     model.cuda()
     optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr)
     # print(model.conv1.quantize_input)
@@ -180,7 +192,7 @@ for k in range(n_runs):
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
 
-        teacher_model = models.Lenet5(is_quantized=False)
+        teacher_model = ResNet_cifar10()
         teacher_model.cuda()
         teacher_model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -203,7 +215,7 @@ for k in range(n_runs):
             inputs = inputs.cuda()
             targets = targets.cuda()
 
-            output = model(inputs, eta=etaval)
+            output = model(inputs)
             loss = criterion(output, targets)
 
             #adding distillation loss

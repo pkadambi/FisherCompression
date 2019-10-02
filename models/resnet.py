@@ -159,11 +159,11 @@ class ResNet_imagenet(ResNet):
         }
 
 
-class ResNet_cifar10(ResNet):
+class ResNet_cifar10_full_precision(ResNet):
 
     def __init__(self, num_classes=10,
                  block=BasicBlock, depth=18):
-        super(ResNet_cifar10, self).__init__()
+        super(ResNet_cifar10_full_precision, self).__init__()
         self.inplanes = 16
         n = int((depth - 2) / 6)
         self.conv1 = nn.Conv2d(3, 16, kernel_size=3, stride=1, padding=1,

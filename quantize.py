@@ -22,13 +22,17 @@ def _mean(p, dim):
         return _mean(p.transpose(0, dim), 0).transpose(0, dim)
 
 
-# class UniformQuantize(InplaceFunction):
-class UniformQuantize(torch.autograd.Function):
+class UniformQuantize(InplaceFunction):
+# class UniformQuantize(torch.autograd.Function):
 # class UniformQuantize(nn.Module):
 
-    @classmethod
-    def forward(cls, ctx, input, num_bits=8, min_value=None, max_value=None, eta = .01,
-                noise=None, num_chunks=None, out_half=False):
+    # @classmethod
+
+    @staticmethod
+    # def forward(cls, ctx, input, num_bits=8, min_value=None, max_value=None, eta = .01,
+    #             noise=None, num_chunks=None, out_half=False):
+    def forward(ctx, input, num_bits=8, min_value=None, max_value=None, eta=.01,
+                    noise=None, num_chunks=None, out_half=False):
 
         num_chunks = input.shape[0] if num_chunks is None else num_chunks
         if min_value is None or max_value is None:
@@ -46,13 +50,13 @@ class UniformQuantize(torch.autograd.Function):
 ##
         ctx.noise = noise
 
-
         if quantize:
 
             ctx.num_bits = num_bits
             ctx.min_value = min_value
             ctx.max_value = max_value
-
+            # print(input)
+            # exit()
             q_weight = input.clone()
 
             qmin = 0.
@@ -113,15 +117,23 @@ class UniformQuantize(torch.autograd.Function):
     def backward(ctx, grad_output):
         # straight-through estimator
 
-        if FLAGS.regularization=='l2':
-            pert = ctx.saved_tensors[0]
-            grad_input = grad_output + FLAGS.gamma * FLAGS.diag_load_const * 2 * pert
-        elif FLAGS.regularization=='fisher':
-            pert = ctx.saved_tensors[0]
-            #TODO: incorporate diagonal load amount in a flag
-            grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + FLAGS.diag_load_const * pert)
-        else:
-            grad_input = grad_output
+        # if FLAGS.regularization=='l2':
+        #     pert = ctx.saved_tensors[0]
+        #     grad_input = grad_output + FLAGS.gamma * FLAGS.diag_load_const * 2 * pert
+        # elif FLAGS.regularization=='fisher':
+        #     pert = ctx.saved_tensors[0]
+        #
+        #     # grad_input = grad_output + torch.clamp(FLAGS.gamma *
+        #     #                                        2 * (grad_output * grad_output *
+        #     #                                        pert + FLAGS.diag_load_const * pert),
+        #     #                                        -.1, .1)
+        #
+        #     grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + FLAGS.diag_load_const * pert)
+        #
+        #
+        # else:
+        #     grad_input = grad_output
+        grad_input = grad_output
 
         # return grad_input
         return grad_input, None, None, None, None, None, None, None, None
@@ -211,7 +223,7 @@ class QuantMeasure(nn.Module):
 
     def forward(self, input):
 
-        if self.training:
+        if self.training and FLAGS.regularization is None:
             # std = torch.std(input.detach().view(-1))
             # mean = torch.mean(input.detach().view(-1))
 
@@ -223,12 +235,12 @@ class QuantMeasure(nn.Module):
             # ind_min = int(n_elems * .001)
             # ind_max = n_elems - ind_min
 
-            if self.num_bits<=2:
+            # if self.num_bits<=2:
 
-                min_value = -.5
-                max_value = .5
+                # min_value = -.5
+                # max_value = .5
 
-            else:
+            # else:
 
                 # std = torch.std(input.detach().view(-1))
                 # mean = torch.mean(input.detach()
@@ -237,8 +249,8 @@ class QuantMeasure(nn.Module):
                 # min_value = mean - 3 * std
                 # max_value = mean + 3 * std
 
-                min_value = input.detach().view(input.size(0), -1).min(-1)[0].mean()
-                max_value = input.detach().view(input.size(0), -1).max(-1)[0].mean()
+            min_value = input.detach().view(input.size(0), -1).min(-1)[0].mean()
+            max_value = input.detach().view(input.size(0), -1).max(-1)[0].mean()
 
                 # min_value = torch.kthvalue(input.view(-1), ind_min)[0]
                 # max_value = torch.kthvalue(input.view(-1), ind_max)[0]
@@ -266,9 +278,8 @@ class QConv2d(nn.Conv2d):
         self.is_quantized = is_quantized
 
 
-        if self.num_bits_act<32:
+        if self.num_bits_act<32 and is_quantized:
             self.quantize_input = QuantMeasure(self.num_bits_act)
-
 
         self.biprecision = biprecision
         self.noise = noise
@@ -282,7 +293,7 @@ class QConv2d(nn.Conv2d):
     #TODO: add inputs eta, noise model (eta kept in formward
 
 
-    def forward(self, input, eta):
+    def forward(self, input, eta=0.):
 
         #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
 
@@ -297,7 +308,7 @@ class QConv2d(nn.Conv2d):
 
             if FLAGS.q_min is None:
                 self.min_value = self.weight.min()
-                print(self.min_value)
+                # print(self.min_value)
 
             if FLAGS.q_max is None:
                 self.max_value = self.weight.max()
@@ -306,25 +317,24 @@ class QConv2d(nn.Conv2d):
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
-            qweight = quantize(self.weight, num_bits=self.num_bits_weight,
+            self.qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),
                                max_value=float(self.max_value), noise=self.noise, eta=eta)
 
 
-            self.qweight = qweight.clone()
 
             #TODO: ADD NOISING FUNCTION HERE
 
 
             if self.bias is not None:
-                qbias = quantize(self.bias, num_bits=self.num_bits_weight)
+                self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
 
             else:
-                qbias = None
+                self.qbias = None
 
 
 
-            output = F.conv2d(qinput, qweight, qbias, self.stride,
+            output = F.conv2d(qinput, self.qweight, self.qbias, self.stride,
                                   self.padding, self.dilation, self.groups)
 
         else:
@@ -345,7 +355,7 @@ class QLinear(nn.Linear):
         self.num_bits_weight = num_bits_weight
         self.is_quantized = is_quantized
 
-        if self.num_bits_act<32:
+        if self.num_bits_act<32 and is_quantized:
             self.quantize_input = QuantMeasure(self.num_bits_act)
 
         self.noise = noise
@@ -356,7 +366,7 @@ class QLinear(nn.Linear):
         if FLAGS.q_max is not None:
             self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
 
-    def forward(self, input, eta):
+    def forward(self, input, eta=0.):
 
         if self.is_quantized:
             if self.num_bits_act < 32:
@@ -373,18 +383,18 @@ class QLinear(nn.Linear):
             # self.weight.data.clamp(self.min_value, self.max_value)
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
-            qweight = quantize(self.weight, num_bits=self.num_bits_weight,
+            self.qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.min_value),
                                max_value=float(self.max_value), noise=self.noise, eta=eta)
 
             #TODO: choose whether to quantize bias
             if self.bias is not None:
-                qbias = quantize(self.bias, num_bits=self.num_bits_weight)
+                self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
             else:
-                qbias = None
+                self.qbias = None
 
 
-            output = F.linear(qinput, qweight, qbias)
+            output = F.linear(qinput, self.qweight, self.qbias)
 
         else:
 

@@ -1,7 +1,7 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
-from ..quantize import QConv2d, QLinear
+from quantize import QConv2d, QLinear
 import tensorflow as tf
 
 __all__ = ['resnet_quantized_float_bn']
@@ -113,7 +113,7 @@ class ResNet(nn.Module):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             downsample = nn.Sequential(
-                QConv2d(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1,),
+                QConv2d(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1,1),
                         stride=stride, bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt,
                         num_bits_act=n_bits_act),
 
@@ -122,13 +122,15 @@ class ResNet(nn.Module):
 
         layers = []
         layers.append(block(self.inplanes, planes, stride, downsample))
+
         self.inplanes = planes * block.expansion
+
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes))
 
         return nn.Sequential(*layers)
 
-    def forward(self, x, eta):
+    def forward(self, x, eta=0.):
         x = self.conv1(x, eta)
         x = self.bn1(x)
         x = self.relu(x)
@@ -181,21 +183,34 @@ class ResNet_cifar10(ResNet):
     def __init__(self, num_classes=10,
                  block=BasicBlock, depth=18):
         super(ResNet_cifar10, self).__init__()
-        self.inplanes = 16
+
+        if n_bits_wt<=2:
+            self.inflate = 5
+
+        elif n_bits_wt <= 4:
+            self.inflate = 2
+        else:
+            self.inflate = 1
+
+        self.is_quantized = FLAGS.is_quantized
+        self.noise = FLAGS.noise_model
+
+        self.inplanes = 16 * self.inflate
+
         n = int((depth - 2) / 6)
-        self.conv1 = QConv2d(in_channels=3, out_channels=16, kernel_size=(3,3), stride=1, padding=1,
+        self.conv1 = QConv2d(in_channels=3, out_channels=16*self.inflate, kernel_size=(3,3), stride=1, padding=1,
                              bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
 
-        self.bn1 = nn.BatchNorm2d(16)
+        self.bn1 = nn.BatchNorm2d(16 * self.inflate)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = lambda x: x
-        self.layer1 = self._make_layer(block, 16, n)
-        self.layer2 = self._make_layer(block, 32, n, stride=2)
-        self.layer3 = self._make_layer(block, 64, n, stride=2)
+        self.layer1 = self._make_layer(block, 16 * self.inflate, n)
+        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2)
+        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2)
         self.layer4 = lambda x: x
         self.avgpool = nn.AvgPool2d(8)
-        self.fc = QLinear(64, num_classes, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT,
-                          num_bits_grad=NUM_BITS_GRAD)
+        self.fc = QLinear(64 * self.inflate, num_classes, is_quantized=self.is_quantized, noise=self.noise,
+                           num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
 
         init_model(self)
         self.regime = [
@@ -208,29 +223,33 @@ class ResNet_cifar10(ResNet):
 
 
 def resnet_quantized_float_bn(**kwargs):
-    num_classes, depth, dataset = map(
-        kwargs.get, ['num_classes', 'depth', 'dataset'])
-    if dataset == 'imagenet':
-        num_classes = num_classes or 1000
-        depth = depth or 50
-        if depth == 18:
-            return ResNet_imagenet(num_classes=num_classes,
-                                   block=BasicBlock, layers=[2, 2, 2, 2])
-        if depth == 34:
-            return ResNet_imagenet(num_classes=num_classes,
-                                   block=BasicBlock, layers=[3, 4, 6, 3])
-        if depth == 50:
-            return ResNet_imagenet(num_classes=num_classes,
-                                   block=Bottleneck, layers=[3, 4, 6, 3])
-        if depth == 101:
-            return ResNet_imagenet(num_classes=num_classes,
-                                   block=Bottleneck, layers=[3, 4, 23, 3])
-        if depth == 152:
-            return ResNet_imagenet(num_classes=num_classes,
-                                   block=Bottleneck, layers=[3, 8, 36, 3])
+    #TODO:fix for imagenet (and resnet34)
 
-    elif dataset == 'cifar10':
-        num_classes = num_classes or 10
-        depth = depth or 56
-        return ResNet_cifar10(num_classes=num_classes,
-                              block=BasicBlock, depth=depth)
+    # num_classes, depth, dataset = map(
+    #     kwargs.get, ['num_classes', 'depth', 'dataset'])
+    # if dataset == 'imagenet':
+    #     num_classes = num_classes or 1000
+    #     depth = depth or 50
+    #     if depth == 18:
+    #         return ResNet_imagenet(num_classes=num_classes,
+    #                                block=BasicBlock, layers=[2, 2, 2, 2])
+    #     if depth == 34:
+    #         return ResNet_imagenet(num_classes=num_classes,
+    #                                block=BasicBlock, layers=[3, 4, 6, 3])
+    #     if depth == 50:
+    #         return ResNet_imagenet(num_classes=num_classes,
+    #                                block=Bottleneck, layers=[3, 4, 6, 3])
+    #     if depth == 101:
+    #         return ResNet_imagenet(num_classes=num_classes,
+    #                                block=Bottleneck, layers=[3, 4, 23, 3])
+    #     if depth == 152:
+    #         return ResNet_imagenet(num_classes=num_classes,
+    #                                block=Bottleneck, layers=[3, 8, 36, 3])
+    #
+    # elif dataset == 'cifar10':
+    #     num_classes = num_classes or 10
+    #     depth = depth or 56
+    #     return ResNet_cifar10(num_classes=num_classes,
+    #                           block=BasicBlock, depth=depth)
+
+    return ResNet_cifar10(num_classes=10, block=BasicBlock)

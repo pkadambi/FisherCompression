@@ -183,11 +183,11 @@ class ResNet_imagenet(ResNet):
         }
 
 
-class ResNet_cifar10(ResNet):
+class ResNet_cifar10_binary(ResNet):
 
     def __init__(self, num_classes=10,
                  block=BasicBlock, depth=18):
-        super(ResNet_cifar10, self).__init__()
+        super(ResNet_cifar10_binary, self).__init__()
         self.inflate = 5
         self.inplanes = 16*self.inflate
         n = int((depth - 2) / 6)

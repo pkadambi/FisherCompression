@@ -8,8 +8,33 @@ import logging.config
 from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
 from bokeh.layouts import column
+import torch.nn.functional as F
 
 
+
+def loss_fn_kd(student_logits, teacher_logits, T):
+    """
+    Compute the knowledge-distillation (KD) loss given outputs from student and teacher
+    "Hyperparameters": temperature and alpha
+    NOTE: the KL Divergence for PyTorch comparing the softmaxs of teacher
+    and student expects the input tensor to be log probabilities! See Issue #2
+    """
+
+    teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
+    # print(teacher_soft_logits[0,:])
+    # print(teacher_soft_logits[5,:])
+    # print(teacher_soft_logits[55,:])
+    # print(teacher_soft_logits[66,:])
+    # print(teacher_soft_logits[77,:])
+    # print(teacher_soft_logits[88,:])
+    # exit()
+    teacher_soft_logits = teacher_soft_logits.float()
+    student_soft_logits = F.log_softmax(student_logits/T, dim=1)
+    KD_loss = nn.KLDivLoss(reduction='batchmean')(student_soft_logits, teacher_soft_logits)
+    KD_loss = (T ** 2) * KD_loss
+    # KD_loss = nn.KLDivLoss()(F.log_softmax(outputs/T, dim=1), F.softmax(teacher_outputs/T, dim=1)) * (alpha * T * T)
+
+    return KD_loss
 
 def quantizer_levels_from_wts(model, n_levels):
     """
