@@ -37,7 +37,7 @@ class BasicBlock(nn.Module):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample = downsample
@@ -46,6 +46,9 @@ class BasicBlock(nn.Module):
     def forward(self, x):
         residual = x
 
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
         out = self.conv1(x)
         out = self.bn1(out)
         out = self.relu(out)
@@ -53,8 +56,7 @@ class BasicBlock(nn.Module):
         out = self.conv2(out)
         out = self.bn2(out)
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
+
 
         out += residual
         out = self.relu(out)
@@ -77,7 +79,7 @@ class Bottleneck(nn.Module):
         self.conv3 = QConv2d(in_channels=planes, out_channels=planes * 4, kernel_size=(1,1), bias=False,
                              is_quantized=is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
         self.bn3 = nn.BatchNorm2d(planes * 4)
-        self.relu = nn.ReLU(inplace=True)
+        self.relu = nn.ReLU()
         self.downsample = downsample
         self.stride = stride
 
@@ -147,6 +149,46 @@ class ResNet(nn.Module):
 
         return x
 
+class ResNet_cifar10(ResNet):
+
+    def __init__(self, num_classes=10,
+                 block=BasicBlock, depth=18):
+        super(ResNet_cifar10, self).__init__()
+
+        if n_bits_wt<=2:
+            self.inflate = 5
+
+        else:
+            self.inflate = 2
+
+        self.is_quantized = FLAGS.is_quantized
+        self.noise = FLAGS.noise_model
+
+        self.inplanes = 16 * self.inflate
+
+        n = int((depth - 2) / 6)
+        self.conv1 = QConv2d(in_channels=3, out_channels=16*self.inflate, kernel_size=(3,3), stride=1, padding=1,
+                             bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
+
+        self.bn1 = nn.BatchNorm2d(16 * self.inflate)
+        self.relu = nn.ReLU()
+        self.maxpool = lambda x: x
+        self.layer1 = self._make_layer(block, 16 * self.inflate, n)
+        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2)
+        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2)
+        self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2)
+        self.avgpool = nn.AvgPool2d(4)
+        self.fc = QLinear(128 * self.inflate, num_classes, is_quantized=self.is_quantized, noise=self.noise,
+                           num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
+
+        init_model(self)
+        self.regime = [
+            {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
+             'weight_decay': 1e-4, 'momentum': 0.9},
+            {'epoch': 81, 'lr': 1e-2},
+            {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
+            {'epoch': 164, 'lr': 1e-4}
+        ]
 
 class ResNet_imagenet(ResNet):
 
@@ -178,48 +220,7 @@ class ResNet_imagenet(ResNet):
         ]
 
 
-class ResNet_cifar10(ResNet):
 
-    def __init__(self, num_classes=10,
-                 block=BasicBlock, depth=18):
-        super(ResNet_cifar10, self).__init__()
-
-        if n_bits_wt<=2:
-            self.inflate = 5
-
-        elif n_bits_wt <= 4:
-            self.inflate = 2
-        else:
-            self.inflate = 1
-
-        self.is_quantized = FLAGS.is_quantized
-        self.noise = FLAGS.noise_model
-
-        self.inplanes = 16 * self.inflate
-
-        n = int((depth - 2) / 6)
-        self.conv1 = QConv2d(in_channels=3, out_channels=16*self.inflate, kernel_size=(3,3), stride=1, padding=1,
-                             bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
-
-        self.bn1 = nn.BatchNorm2d(16 * self.inflate)
-        self.relu = nn.ReLU(inplace=True)
-        self.maxpool = lambda x: x
-        self.layer1 = self._make_layer(block, 16 * self.inflate, n)
-        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2)
-        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2)
-        self.layer4 = lambda x: x
-        self.avgpool = nn.AvgPool2d(8)
-        self.fc = QLinear(64 * self.inflate, num_classes, is_quantized=self.is_quantized, noise=self.noise,
-                           num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
-
-        init_model(self)
-        self.regime = [
-            {'epoch': 0, 'optimizer': 'SGD', 'lr': 1e-1,
-             'weight_decay': 1e-4, 'momentum': 0.9},
-            {'epoch': 81, 'lr': 1e-2},
-            {'epoch': 122, 'lr': 1e-3, 'weight_decay': 0},
-            {'epoch': 164, 'lr': 1e-4}
-        ]
 
 
 def resnet_quantized_float_bn(**kwargs):

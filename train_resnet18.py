@@ -23,11 +23,11 @@ weight decay
 
 tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 100, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 300, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
-tf.app.flags.DEFINE_float('weight_decay', 1e-4, 'weight decay value')
+tf.app.flags.DEFINE_float('weight_decay', 2e-4, 'weight decay value')
 
-tf.app.flags.DEFINE_float('lr', 1e-3, 'learning rate')
+tf.app.flags.DEFINE_float('lr', .1, 'learning rate')
 
 # tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_boolean('is_quantized', False, 'whether the network is quantized')
@@ -153,7 +153,7 @@ cudnn.benchmark = True
 torch.cuda.set_device(0)
 
 batch_size = FLAGS.batch_size
-n_workers = 4
+n_workers = 6
 dataset = FLAGS.dataset
 n_epochs = FLAGS.n_epochs
 record_interval = FLAGS.record_interval
@@ -169,7 +169,6 @@ train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, sh
 test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True,
                                           num_workers=n_workers, pin_memory=True)
 
-
 n_runs = FLAGS.n_runs
 test_accs=[]
 
@@ -179,7 +178,10 @@ for k in range(n_runs):
     model = ResNet_cifar10()
     # exit()
     model.cuda()
-    optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+    # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+    optimizer = optim.SGD(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+    lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
+        # CosineAnnealingLR()
     # print(model.conv1.quantize_input)
     # exit()
     print('\n\n\n********** RUN %d **********\n' % k)
@@ -212,7 +214,7 @@ for k in range(n_runs):
     for epoch in range(n_epochs):
         model.train()
         start = time.time()
-
+        lr_scheduler.step()
         for iter, (inputs, targets) in enumerate(train_loader):
 
 
@@ -262,9 +264,12 @@ for k in range(n_runs):
         end = time.time()
         elapsed = end - start
         model.eval()
-        print('\n*** TESTING ***\n')
-        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
-        print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]' % (epoch, test_loss, test_acc, elapsed))
+
+        #Report test error every 10 epochs
+        if epoch % 10 == 0:
+            print('\n*** TESTING ***\n')
+            test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+            print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.3f]' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr']))
         # print(model.conv1.quantize_input.running_min)
         # print(model.conv1.quantize_input.running_max)
 
@@ -274,8 +279,12 @@ for k in range(n_runs):
         # exit()
         print('\n*** EPOCH END ***\n')
 
+        lr_scheduler.step(epoch)
 
-
+    print('\n*** TESTING ***\n')
+    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+    print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.3f]' % (
+    epoch, test_loss, test_acc, elapsed, optimizer.param_groups[0]['lr']))
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
     test_accs.append(test_acc)
 
