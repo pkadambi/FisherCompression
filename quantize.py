@@ -284,15 +284,10 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
         self.noise = noise
 
-        if FLAGS.q_min is not None:
-            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
-
-        if FLAGS.q_max is not None:
-            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+        self.min_value = self.weight.min()
+        self.max_value = self.weight.max()
 
     #TODO: add inputs eta, noise model (eta kept in formward
-
-
     def forward(self, input, eta=0.):
 
         #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
@@ -306,11 +301,11 @@ class QConv2d(nn.Conv2d):
                 qinput = input
 
 
-            if FLAGS.q_min is None:
+            if FLAGS.q_min is None and FLAGS.regularization is None:
                 self.min_value = self.weight.min()
                 # print(self.min_value)
 
-            if FLAGS.q_max is None:
+            if FLAGS.q_max is None and FLAGS.regularization is None:
                 self.max_value = self.weight.max()
 
 
@@ -344,6 +339,10 @@ class QConv2d(nn.Conv2d):
         return output
 
 
+    def set_min_max(self):
+        self.min_value = self.weight.min()
+        self.max_value = self.weight.max()
+
 class QLinear(nn.Linear):
     """docstring for QConv2d."""
 
@@ -360,11 +359,8 @@ class QLinear(nn.Linear):
 
         self.noise = noise
 
-        if FLAGS.q_min is not None:
-            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
-
-        if FLAGS.q_max is not None:
-            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+        self.min_value = self.weight.min()
+        self.max_value = self.weight.max()
 
     def forward(self, input, eta=0.):
 
@@ -374,10 +370,11 @@ class QLinear(nn.Linear):
             else:
                 qinput = input
 
-            if FLAGS.q_min is None:
+
+            if FLAGS.q_min is None and FLAGS.regularization is None:
                 self.min_value = self.weight.min()
 
-            if FLAGS.q_max is None:
+            if FLAGS.q_max is None and FLAGS.regularization is None:
                 self.max_value = self.weight.max()
 
             # self.weight.data.clamp(self.min_value, self.max_value)
@@ -403,5 +400,6 @@ class QLinear(nn.Linear):
         return output
 
 
-
-
+    def set_min_max(self):
+        self.min_value = self.weight.min()
+        self.max_value = self.weight.max()

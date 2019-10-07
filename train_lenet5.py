@@ -241,8 +241,8 @@ for k in range(n_runs):
                                 # print(torch.topk(FIM_diag.view(-1), 100)[0])
                                 # print('Min')
                                 # print(torch.topk(FIM_diag.view(-1), 100, largest=False)[0])
-                                inv_FIM = (1/FIM_diag) * FLAGS.diag_load_const
-                                inv_FIM_bias = (1/FIM_diag_bias) * FLAGS.diag_load_const
+                                inv_FIM = (1/(FIM_diag+1e-7) )* 1e-7
+                                inv_FIM_bias = (1/(FIM_diag_bias + 1e-7)) * 1e-7
                                 # print('Max')
                                 # print(torch.topk(inv_FIM.view(-1), 100)[0])
                                 # print('Min')

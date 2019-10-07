@@ -33,21 +33,23 @@ def init_model(model):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, inplanes, planes, stride=1, downsample_conv=None, downsample_bn=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU()
         self.conv2 = conv3x3(planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
-        self.downsample = downsample
+        self.downsample_conv = downsample_conv
+        self.downsample_bn = downsample_bn
         self.stride = stride
 
     def forward(self, x):
         residual = x
 
-        if self.downsample is not None:
-            residual = self.downsample(x)
+        if self.downsample_conv is not None:
+            residual = self.downsample_conv(x)
+            residual = self.downsample_bn(residual)
 
         out = self.conv1(x)
         out = self.bn1(out)
@@ -112,18 +114,17 @@ class ResNet(nn.Module):
         super(ResNet, self).__init__()
 
     def _make_layer(self, block, planes, blocks, stride=1):
-        downsample = None
+        ds_conv = None
+        ds_bn = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            downsample = nn.Sequential(
-                QConv2d(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1,1),
+            ds_conv = QConv2d(in_channels=self.inplanes, out_channels=planes * block.expansion, kernel_size=(1,1),
                         stride=stride, bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt,
-                        num_bits_act=n_bits_act),
+                        num_bits_act=n_bits_act)
 
-                nn.BatchNorm2d(planes * block.expansion),
-            )
+            ds_bn = nn.BatchNorm2d(planes * block.expansion)
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, downsample))
+        layers.append(block(self.inplanes, planes, stride, ds_conv, ds_bn))
 
         self.inplanes = planes * block.expansion
 
@@ -156,7 +157,7 @@ class ResNet_cifar10(ResNet):
         super(ResNet_cifar10, self).__init__()
 
         if n_bits_wt<=2:
-            self.inflate = 5
+            self.inflate = 4
 
         else:
             self.inflate = 2
