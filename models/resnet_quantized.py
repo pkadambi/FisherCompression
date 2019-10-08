@@ -14,7 +14,7 @@ n_bits_wt = FLAGS.n_bits_wt
 n_bits_act = FLAGS.n_bits_act
 is_quantized = FLAGS.is_quantized
 
-def conv3x3(in_planes, out_planes, stride=1):
+def conv3x3(is_quantized, in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
     return QConv2d(in_channels=in_planes, out_channels=out_planes, kernel_size=(3,3), stride=stride,
                    padding=1, bias=False, is_quantized=is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
@@ -33,12 +33,12 @@ def init_model(model):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, inplanes, planes, stride=1, downsample_conv=None, downsample_bn=None):
+    def __init__(self, is_quantized, inplanes, planes, stride=1, downsample_conv=None, downsample_bn=None):
         super(BasicBlock, self).__init__()
-        self.conv1 = conv3x3(inplanes, planes, stride)
+        self.conv1 = conv3x3(is_quantized, inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
         self.relu = nn.ReLU()
-        self.conv2 = conv3x3(planes, planes)
+        self.conv2 = conv3x3(is_quantized, planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample_conv = downsample_conv
         self.downsample_bn = downsample_bn
@@ -124,12 +124,12 @@ class ResNet(nn.Module):
             ds_bn = nn.BatchNorm2d(planes * block.expansion)
 
         layers = []
-        layers.append(block(self.inplanes, planes, stride, ds_conv, ds_bn))
+        layers.append(block(self.is_quantized, self.inplanes, planes, stride, ds_conv, ds_bn))
 
         self.inplanes = planes * block.expansion
 
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes))
+            layers.append(block(self.is_quantized, self.inplanes, planes))
 
         return nn.Sequential(*layers)
 
@@ -153,7 +153,7 @@ class ResNet(nn.Module):
 class ResNet_cifar10(ResNet):
 
     def __init__(self, num_classes=10,
-                 block=BasicBlock, depth=18):
+                 block=BasicBlock, depth=18, is_quantized=None):
         super(ResNet_cifar10, self).__init__()
 
         if n_bits_wt<=2:
@@ -162,7 +162,11 @@ class ResNet_cifar10(ResNet):
         else:
             self.inflate = 2
 
-        self.is_quantized = FLAGS.is_quantized
+        if is_quantized is None:
+            self.is_quantized = FLAGS.is_quantized
+        else:
+            self.is_quantized = is_quantized
+
         self.noise = FLAGS.noise_model
 
         self.inplanes = 16 * self.inflate

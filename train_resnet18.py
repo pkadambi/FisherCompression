@@ -134,12 +134,13 @@ if FLAGS.noise_model is not None:
 
 #Save path
 if not FLAGS.debug and FLAGS.savepath is None:
-
     SAVEPATH = './SavedModels/Resnet18/%dba_%dbw' % (n_bits_act, n_bits_wt)
     if reg_string is not '':
         SAVEPATH += '_' + reg_string
     SAVEPATH += '/'
     config_str += 'Savepath:\t' + SAVEPATH + '\n'
+    if FLAGS.regularization is not None:
+        SAVEPATH += '/' + FLAGS.regularization
 
 elif not FLAGS.debug:
     SAVEPATH = FLAGS.savepath
@@ -216,7 +217,7 @@ for k in range(n_runs):
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
 
-        teacher_model = ResNet_cifar10()
+        teacher_model = ResNet_cifar10(is_quantized=False)
         teacher_model.cuda()
         teacher_model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -256,38 +257,40 @@ for k in range(n_runs):
             perts = []
             fim=[]
             inv_fim=[]
-            if fisher or l2 or inv_fisher:
-                for l, (name, layer) in enumerate(model.named_modules()):
-                    if 'conv' in name or 'fc' in name:
-                        # print('\n\nNEW LAYER')
-                        # print(layer)
 
+            for l, (name, layer) in enumerate(model.named_modules()):
+                if 'conv' in name or 'fc' in name:
+                    # print('\n\nNEW LAYER')
+                    # print(layer)
+                    with torch.no_grad():
                         if hasattr(layer, 'weight'):
                             # print(name)
 
                             pertw = layer.weight - layer.qweight
+                            FIM = layer.weight.grad * layer.weight.grad
+                            fim.append(FIM)
                             perts.append(pertw)
+
                             if fisher:
                                 layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
                                                                         FLAGS.diag_load_const * pertw)
                                 # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
                             elif inv_fisher:
-                                FIM = layer.weight.grad * layer.weight.grad
 
                                 inv_FIM = 1/(FIM+1e-7)
                                 inv_FIM = inv_FIM * 1e-7
-                                # fim.append(FIM)
-                                # inv_fim.append(inv_FIM)
+                                inv_fim.append(inv_FIM)
 
                                 # layer.weight.grad += torch.clamp(FLAGS.gamma * 2 * (inv_FIM * pertw),-.01,.01)
-                                layer.weight.grad += FLAGS.gamma * 2 * (inv_FIM *(pertw + .00 * pertw))
+                                layer.weight.grad += FLAGS.gamma * 2 * (inv_FIM *(pertw + FLAGS.diag_load_const * pertw))
 
                             elif l2:
                                 layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
 
             # fim = np.concatenate([np.ravel(fim_[0].cpu().numpy()) for fim_ in fim])
             # inv_fim = np.concatenate([np.ravel(inv_fim_[0].cpu().numpy()) for inv_fim_ in inv_fim])
-
+            # corrected = fim+1e-6
+            #
             # plt.figure()
             # plt.hist(inv_fim, log=True, bins=50)
             # plt.title('inv fisher')
@@ -295,20 +298,32 @@ for k in range(n_runs):
             # plt.figure()
             # plt.hist(fim, log=True,bins=50)
             # plt.title('fisher')
-            # plt.figure()
             #
+            # log_fim = np.log2(corrected,)
+            # plt.figure()
+            # plt.hist(np.log(corrected), log=True,bins=50)
+            # plt.title('log corrected fisher')
+            #
+            # plt.figure()
             # scaled = inv_fim * 1e-6
             # plt.hist(scaled, log=True, bins=50)
             # plt.title('scaled inv')
             #
             # plt.figure()
+            # inv_log_fim = -log_fim
+            # inv_log_fim = inv_log_fim - np.min(inv_log_fim )
             #
-            # corrected = fim+1e-6
+            # # inv_log_fim = (inv_log_fim-np.min(inv_log_fim))/(np.max(inv_log_fim))
+            # plt.hist(inv_log_fim, log=True, bins=50)
+            # plt.title('scaled log inv')
+            #
+            #
+            # plt.figure()
             # plt.hist(corrected, log=True, bins=50)
             # plt.title('corrected fisher')
             #
             # plt.show()
-
+            #
             # exit()
             optimizer.step()
 
@@ -318,7 +333,8 @@ for k in range(n_runs):
             # print(i)
             if i%record_interval==0 or i==0:
                 msqe = sum([torch.sum(pert_ * pert_) for pert_ in perts])
-                print('Step [%d] | Loss [%.3f] | Acc [%.3f]| MSQE [%.3f]' % (i, lossval, train_acc, msqe))
+                fim_trace = sum([torch.sum(fim_) for fim_ in fim])
+                print('Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace ))
 
             i+=1
 

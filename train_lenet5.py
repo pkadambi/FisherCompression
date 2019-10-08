@@ -23,7 +23,7 @@ tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that o
 
 tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` `distillation` or `inv_fisher`')
 
-tf.app.flags.DEFINE_float('gamma', 0.005, 'gamma value')
+tf.app.flags.DEFINE_float('gamma', 0.0001, 'gamma value')
 tf.app.flags.DEFINE_float('diag_load_const', 5e-5, 'diagonal loading constant')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
@@ -123,6 +123,9 @@ if not FLAGS.debug and FLAGS.savepath is None:
     SAVEPATH += '/'
     config_str += 'Savepath:\t' + SAVEPATH + '\n'
 
+    if FLAGS.regularization is not None:
+        SAVEPATH = SAVEPATH + '/' + FLAGS.regularization
+
 elif not FLAGS.debug:
     SAVEPATH = FLAGS.savepath
 
@@ -174,10 +177,14 @@ for k in range(n_runs):
         checkpoint = torch.load(loadpath)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+
+        for name, layer in model.named_modules():
+            if ('conv' in name or 'fc' in name) and not 'quantize' in name:
+                layer.set_min_max()
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         print(' Restored Model Accuracy: \t %.3f' % (test_acc))
         config_str += 'Restored Model Test Acc:\t%.3f' % (test_acc) + '\n'
-
+        # exit()
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
 
@@ -217,40 +224,51 @@ for k in range(n_runs):
 
             optimizer.zero_grad()
             loss.backward()
-
+            perts=[]
+            fim = []
             #fisher loss without messing up gradient flow
-            if fisher or l2 or inv_fisher:
-                for layer in model.modules():
-                    with torch.no_grad():
-                        if hasattr(layer, 'weight'):
-                            pertw = layer.weight - layer.qweight
-                            pertb = layer.bias - layer.qbias
-                            if fisher:
-                                layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
-                                                                  FLAGS.diag_load_const * pertw)
-                                layer.bias.grad += FLAGS.gamma * 2 * (layer.bias.grad * layer.bias.grad * pertb +
-                                                                        FLAGS.diag_load_const * pertb)
-                            elif l2:
-                                layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
-                                layer.bias.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertb
+            for layer in model.modules():
+                with torch.no_grad():
+                    if hasattr(layer, 'weight'):
+                        pertw = layer.weight - layer.qweight
+                        pertb = layer.bias - layer.qbias
+                        perts.append(pertw)
+                        FIM_diag = layer.weight.grad * layer.weight.grad
+                        fim.append(FIM_diag)
+                        if fisher:
+                            layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
+                                                              FLAGS.diag_load_const * pertw)
+                            layer.bias.grad += FLAGS.gamma * 2 * (layer.bias.grad * layer.bias.grad * pertb +
+                                                                    FLAGS.diag_load_const * pertb)
+                        elif l2:
+                            layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
+                            layer.bias.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertb
 
-                            elif inv_fisher:
-                                FIM_diag = layer.weight.grad * layer.weight.grad + FLAGS.diag_load_const
-                                FIM_diag_bias = layer.bias.grad * layer.bias.grad + FLAGS.diag_load_const
-                                # print('Max')
-                                # print(torch.topk(FIM_diag.view(-1), 100)[0])
-                                # print('Min')
-                                # print(torch.topk(FIM_diag.view(-1), 100, largest=False)[0])
-                                inv_FIM = (1/(FIM_diag+1e-7) )* 1e-7
-                                inv_FIM_bias = (1/(FIM_diag_bias + 1e-7)) * 1e-7
-                                # print('Max')
-                                # print(torch.topk(inv_FIM.view(-1), 100)[0])
-                                # print('Min')
-                                # print(torch.topk(inv_FIM.view(-1), 100, largest=False)[0])
+                        elif inv_fisher:
+                            # FIM_diag = layer.weight.grad * layer.weight.grad + FLAGS.diag_load_const
+                            # FIM_diag_bias = layer.bias.grad * layer.bias.grad + FLAGS.diag_load_const
 
 
-                                layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
-                                layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
+                            FIM_diag = layer.weight.grad * layer.weight.grad
+                            FIM_diag_bias = layer.bias.grad * layer.bias.grad
+
+                            # print('Max')
+                            # print(torch.topk(FIM_diag.view(-1), 100)[0])
+                            # print('Min')
+                            # print(torch.topk(FIM_diag.view(-1), 100, largest=False)[0])
+                            # inv_FIM = (1/(FIM_diag+1e-7) )* 1e-7
+                            # inv_FIM_bias = (1/(FIM_diag_bias + 1e-7)) * 1e-7
+
+                            inv_FIM = (1/(FIM_diag + 1e-7) ) * 1e-7
+                            inv_FIM_bias = (1/(FIM_diag_bias + 1e-7))* 1e-7
+                            # print('Max')
+                            # print(torch.topk(inv_FIM.view(-1), 100)[0])
+                            # print('Min')
+                            # print(torch.topk(inv_FIM.view(-1), 100, largest=False)[0])
+
+
+                            layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
+                            layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
             # exit()
 
             optimizer.step()
@@ -259,7 +277,9 @@ for k in range(n_runs):
             lossval = loss.item()
 
             if i%record_interval==0 or i==0:
-                print('Step [%d] | Loss [%.3f] | Acc [%.3f]' % (i, lossval, train_acc))
+                msqe = sum([torch.sum(pert_ * pert_) for pert_ in perts])
+                fim_trace = sum([torch.sum(fim_) for fim_ in fim])
+                print('Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.3f]' % (i, lossval, train_acc, msqe, fim_trace))
 
             i+=1
 

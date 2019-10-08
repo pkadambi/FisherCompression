@@ -106,9 +106,9 @@ class UniformQuantize(InplaceFunction):
             q_weight=input
 
 
-        if FLAGS.regularization is not None:
-            pert = input - q_weight
-            ctx.save_for_backward(pert)
+        # if FLAGS.regularization is not None:
+        #     pert = input - q_weight
+        #     ctx.save_for_backward(pert)
 
 
         return q_weight
@@ -224,6 +224,7 @@ class QuantMeasure(nn.Module):
     def forward(self, input):
 
         if self.training and FLAGS.regularization is None:
+        # if self.training:
             # std = torch.std(input.detach().view(-1))
             # mean = torch.mean(input.detach().view(-1))
 
@@ -284,8 +285,15 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
         self.noise = noise
 
-        self.min_value = self.weight.min()
-        self.max_value = self.weight.max()
+        if FLAGS.q_min is not None:
+            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+        else:
+            self.min_value = self.weight.min()
+
+        if FLAGS.q_max is not None:
+            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+        else:
+            self.max_value = self.weight.max()
 
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
@@ -359,8 +367,15 @@ class QLinear(nn.Linear):
 
         self.noise = noise
 
-        self.min_value = self.weight.min()
-        self.max_value = self.weight.max()
+        if FLAGS.q_min is not None:
+            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+        else:
+            self.min_value = self.weight.min()
+
+        if FLAGS.q_max is not None:
+            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+        else:
+            self.max_value = self.weight.max()
 
     def forward(self, input, eta=0.):
 
