@@ -12,7 +12,6 @@ FLAGS = tf.app.flags.FLAGS
 NUM_BITS = 8
 n_bits_wt = FLAGS.n_bits_wt
 n_bits_act = FLAGS.n_bits_act
-is_quantized = FLAGS.is_quantized
 
 def conv3x3(is_quantized, in_planes, out_planes, stride=1):
     "3x3 convolution with padding"
@@ -69,7 +68,7 @@ class BasicBlock(nn.Module):
 class Bottleneck(nn.Module):
     expansion = 4
 
-    def __init__(self, inplanes, planes, stride=1, downsample=None):
+    def __init__(self, is_quantized, inplanes, planes, stride=1, downsample=None):
         super(Bottleneck, self).__init__()
         self.conv1 = QConv2d(in_channels=inplanes, out_channels=planes, kernel_size=(1,1), stride=stride,
                              bias=False, is_quantized=is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)

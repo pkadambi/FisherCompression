@@ -12,7 +12,7 @@ import tensorflow as tf
 import time as time
 import numpy as np
 import os
-
+import pdb
 '''
 
 n epochs = 300
@@ -23,9 +23,10 @@ weight decay
 
 tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 300, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 200, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
 tf.app.flags.DEFINE_float('weight_decay', 2e-4, 'weight decay value')
+# tf.app.flags.DEFINE_float('weight_decay', 100, 'weight decay value')
 
 tf.app.flags.DEFINE_float('lr', .1, 'learning rate')
 
@@ -48,11 +49,13 @@ tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to us
 tf.app.flags.DEFINE_float('gamma', 0.005, 'gamma value')
 tf.app.flags.DEFINE_float('diag_load_const', 0.005, 'diagonal loading constant')
 
-tf.app.flags.DEFINE_string('optimizer', 'sgd', 'optimizer to use `sgd` or `adam`')
+# tf.app.flags.DEFINE_string('optimizer', 'sgd', 'optimizer to use `sgd` or `adam`')
+tf.app.flags.DEFINE_string('optimizer', 'sgdr', 'optimizer to use `sgd` or `adam`')
 tf.app.flags.DEFINE_boolean('lr_decay', True, 'Whether or not to decay learning rate')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
+
 
 #TODO: find where this is actually used in the code
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
@@ -62,11 +65,15 @@ tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Resnet18/FP/Run0/resnet
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
-'''
-
-NOTE: this line must be after the import statements, since ResNet_cifar10 requires 
+tf.app.flags.DEFINE_boolean('logging', False,'whether to enable writing to a logfile')
 
 '''
+
+NOTE: the following imports must be after flags declarations since these files query the flags 
+
+'''
+from sgdR import SGDR
+
 from models.resnet_quantized import ResNet_cifar10
 from models.resnet_binary import ResNet_cifar10_binary
 FLAGS = tf.app.flags.FLAGS
@@ -148,8 +155,10 @@ elif not FLAGS.debug:
 if FLAGS.loadpath is not None:
     config_str += 'Loadpath:\t' + FLAGS.loadpath + '\n'
 
+if FLAGS.logging:
+    logpath =SAVEPATH + '/logfile.txt'
 
-
+    logfile = open(logpath, 'w+')
 
 etaval = FLAGS.eta
 
@@ -180,7 +189,7 @@ test_accs=[]
 
 for k in range(n_runs):
     i=0
-    model = ResNet_cifar10()
+    model = ResNet_cifar10(is_quantized=FLAGS.is_quantized)
     # exit()
     model.cuda()
     # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
@@ -188,14 +197,22 @@ for k in range(n_runs):
     if FLAGS.optimizer=='adam':
         optimizer = optim.SGD(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay=FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-5)
+
     elif FLAGS.optimizer=='sgd':
         optimizer = optim.SGD(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
+
+    elif FLAGS.optimizer=='sgdr':
+        # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+        optimizer = SGDR(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
         # CosineAnnealingLR()
     # print(model.conv1.quantize_input)
     # exit()
-    print('\n\n\n********** RUN %d **********\n' % k)
-
+    logstr  = '\n**************************************\n'
+    logstr += '\n********** TRAINING STARTED **********\n'
+    logstr += '\n*************** RUN %d ***************\n' % k
+    logstr += '\n**************************************\n'
     if FLAGS.loadpath is not None:
         loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k), 'resnet')
         checkpoint = torch.load(loadpath)
@@ -210,9 +227,10 @@ for k in range(n_runs):
                     layer.set_min_max()
 
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
-        print(' Restored Model Accuracy: \t %.3f' % (test_acc))
+        logstr += '\nRestored Model Accuracy: \t %.3f' % (test_acc)
         config_str += 'Restored Model Test Acc:\t%.3f' % (test_acc) + '\n'
         # exit()
+
 
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
@@ -227,10 +245,16 @@ for k in range(n_runs):
 
 
         test_loss, test_acc = test_model(test_loader, teacher_model, criterion, printing=False, eta=etaval)
-        print('Restored TEACHER MODEL Accuracy: \t %.3f' % (test_acc))
-        config_str += 'Restored TEACHER MODEL Test Acc:\t%.3f' % (test_acc) + '\n'
+        logstr += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
+        config_str += logstr
+
+    if FLAGS.logging:
+        print(logstr)
+        logfile.write(logstr)
+        logfile.flush()
 
     for epoch in range(n_epochs):
+        logfile=''
         model.train()
         start = time.time()
         for iter, (inputs, targets) in enumerate(train_loader):
@@ -258,74 +282,105 @@ for k in range(n_runs):
             fim=[]
             inv_fim=[]
 
-            for l, (name, layer) in enumerate(model.named_modules()):
-                if 'conv' in name or 'fc' in name:
-                    # print('\n\nNEW LAYER')
-                    # print(layer)
-                    with torch.no_grad():
-                        if hasattr(layer, 'weight'):
-                            # print(name)
+            if FLAGS.is_quantized:
+                for l, (name, layer) in enumerate(model.named_modules()):
+                    if 'conv' in name or 'fc' in name:
+                        # print('\n\nNEW LAYER')
+                        # print(layer)
+                        with torch.no_grad():
+                            if hasattr(layer, 'qweight'):
+                                # print(name)
 
-                            pertw = layer.weight - layer.qweight
-                            FIM = layer.weight.grad * layer.weight.grad
-                            fim.append(FIM)
-                            perts.append(pertw)
+                                pertw = layer.weight - layer.qweight
+                                layer.weight.pert = pertw
+                                FIM = layer.weight.grad * layer.weight.grad
 
-                            if fisher:
-                                layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
-                                                                        FLAGS.diag_load_const * pertw)
-                                # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
-                            elif inv_fisher:
+                                if FLAGS.optimizer is not 'sgdr':
+                                    fim.append(FIM)
 
-                                inv_FIM = 1/(FIM+1e-7)
-                                inv_FIM = inv_FIM * 1e-7
-                                inv_fim.append(inv_FIM)
 
-                                # layer.weight.grad += torch.clamp(FLAGS.gamma * 2 * (inv_FIM * pertw),-.01,.01)
-                                layer.weight.grad += FLAGS.gamma * 2 * (inv_FIM *(pertw + FLAGS.diag_load_const * pertw))
+                                perts.append(pertw)
 
-                            elif l2:
-                                layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
+                                if fisher:
+                                    layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
+                                                                            FLAGS.diag_load_const * pertw)
+                                    # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
+                                elif inv_fisher:
 
-            # fim = np.concatenate([np.ravel(fim_[0].cpu().numpy()) for fim_ in fim])
-            # inv_fim = np.concatenate([np.ravel(inv_fim_[0].cpu().numpy()) for inv_fim_ in inv_fim])
-            # corrected = fim+1e-6
-            #
-            # plt.figure()
-            # plt.hist(inv_fim, log=True, bins=50)
-            # plt.title('inv fisher')
-            #
-            # plt.figure()
-            # plt.hist(fim, log=True,bins=50)
-            # plt.title('fisher')
-            #
-            # log_fim = np.log2(corrected,)
-            # plt.figure()
-            # plt.hist(np.log(corrected), log=True,bins=50)
-            # plt.title('log corrected fisher')
-            #
-            # plt.figure()
-            # scaled = inv_fim * 1e-6
-            # plt.hist(scaled, log=True, bins=50)
-            # plt.title('scaled inv')
-            #
-            # plt.figure()
-            # inv_log_fim = -log_fim
-            # inv_log_fim = inv_log_fim - np.min(inv_log_fim )
-            #
-            # # inv_log_fim = (inv_log_fim-np.min(inv_log_fim))/(np.max(inv_log_fim))
-            # plt.hist(inv_log_fim, log=True, bins=50)
-            # plt.title('scaled log inv')
-            #
-            #
-            # plt.figure()
-            # plt.hist(corrected, log=True, bins=50)
-            # plt.title('corrected fisher')
-            #
-            # plt.show()
-            #
-            # exit()
-            optimizer.step()
+                                    inv_FIM = 1/(FIM+1e-7)
+                                    inv_FIM = inv_FIM * 1e-7
+                                    inv_fim.append(inv_FIM)
+
+                                    layer.weight.grad += torch.clamp(FLAGS.gamma * 2 * (inv_FIM * pertw),-.01,.01)
+                                    # layer.weight.reg_grad = FLAGS.gamma * 2 * (inv_FIM *(pertw + FLAGS.diag_load_const * pertw))
+
+                                elif l2:
+                                    layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
+
+
+            if FLAGS.optimizer=='sgdr':
+                optimizer.step(regularizer=FLAGS.regularization)
+
+                # code to access fisher information from the optimizer
+                for group in optimizer.param_groups:
+                    for p in group['params']:
+                        if hasattr(p, 'pert'):
+                            fim.append(optimizer.state[p]['exp_avg_sq'])
+
+                # fim.append(FIM)
+
+                # for fim_ in fim:
+                #     inv_FIM = 1 / (fim_ + 1e-7)
+                #     inv_FIM = inv_FIM * 1e-7
+                #     inv_fim.append(inv_FIM)
+
+                # fim = np.concatenate([np.ravel(fim_[0].cpu().numpy()) for fim_ in fim])
+                # inv_fim = np.concatenate([np.ravel(inv_fim_[0].cpu().numpy()) for inv_fim_ in inv_fim])
+                # corrected = fim+1e-6
+                #
+                # plt.figure()
+                # plt.hist(inv_fim, log=True, bins=50)
+                # plt.title('inv fisher')
+                #
+                # plt.figure()
+                # plt.hist(fim, log=True,bins=50)
+                # plt.title('fisher')
+                #
+                # log_fim = np.log2(corrected)
+                # plt.figure()
+                # plt.hist(np.log(corrected), log=True,bins=50)
+                # plt.title('log corrected fisher')
+                #
+                # plt.figure()
+                # scaled = inv_fim * 1e-6
+                # plt.hist(scaled, log=True, bins=50)
+                # plt.title('scaled inv')
+                #
+                # plt.figure()
+                # inv_log_fim = -log_fim
+                # inv_log_fim = inv_log_fim - np.min(inv_log_fim )
+                #
+                # # inv_log_fim = (inv_log_fim-np.min(inv_log_fim))/(np.max(inv_log_fim))
+                # plt.hist(inv_log_fim, log=True, bins=50)
+                # plt.title('scaled log inv')
+                #
+                #
+                # plt.figure()
+                # plt.hist(corrected, log=True, bins=50)
+                # plt.title('corrected fisher')
+                #
+                # plt.show()
+
+                # exit()
+
+                # exit()
+                # print(optimizer.state[p])
+                # pdb.set_trace()
+                # print(len(perts))
+                # exit()
+            else:
+                optimizer.step()
+
 
             train_acc = accuracy(output, targets).item()
             lossval = loss.item()
@@ -334,7 +389,9 @@ for k in range(n_runs):
             if i%record_interval==0 or i==0:
                 msqe = sum([torch.sum(pert_ * pert_) for pert_ in perts])
                 fim_trace = sum([torch.sum(fim_) for fim_ in fim])
-                print('Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace ))
+                msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace )
+                print(msg)
+                logstr += msg
 
             i+=1
 
@@ -344,9 +401,14 @@ for k in range(n_runs):
 
         #Report test error every n epochs
         if epoch % 1 == 0:
-            print('\n*** TESTING ***\n')
+            msg = '\n*** TESTING ***\n'
             test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
-            print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.5f]' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr']))
+            msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.5f]' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr'])
+            print(msg)
+            logstr+=msg
+
+
+
         # print(model.conv1.quantize_input.running_min)
         # print(model.conv1.quantize_input.running_max)
 
@@ -354,7 +416,13 @@ for k in range(n_runs):
         # print(model.conv1.max_value)
         # print(np.ravel(model.conv1.qweight.detach().cpu().numpy()))
         # exit()
-        print('\n*** EPOCH END ***\n')
+        msg = '\n*** EPOCH END ***\n\n\n'
+
+        logstr += msg
+
+        if FLAGS.logging:
+            logfile.write(logstr)
+            logfile.flush()
 
         if FLAGS.lr_decay:
             lr_scheduler.step(epoch)
@@ -366,10 +434,14 @@ for k in range(n_runs):
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
     test_accs.append(test_acc)
 
-    print('************* FINAL ACCURACY *************')
-    print('TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]' % (test_loss, test_acc))
-    print('************* END *************')
+    msg = '************* FINAL ACCURACY *************'
+    msg += 'TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]' % (test_loss, test_acc)
+    msg += '************* END *************'
+    print(msg)
 
+    if FLAGS.logging:
+        logfile.write(msg)
+        logfile.flush()
 
     j=0
     while os.path.exists(os.path.join(SAVEPATH, 'Run%d' % j)):
@@ -437,7 +509,6 @@ plt.plot(etavals, np.mean(test_accs, axis=1), '-bo')
 plt.xlabel('Eta')
 plt.ylabel('Accuracy')
 plt.show()
-
 
 
 
