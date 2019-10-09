@@ -204,7 +204,7 @@ for k in range(n_runs):
 
     elif FLAGS.optimizer=='sgdr':
         # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
-        optimizer = SGDR(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+        optimizer = SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
         # CosineAnnealingLR()
     # print(model.conv1.quantize_input)
@@ -254,7 +254,9 @@ for k in range(n_runs):
         logfile.flush()
 
     for epoch in range(n_epochs):
-        logfile=''
+
+
+        logfile='\n\n****** NEXT EPOCH ******\n'
         model.train()
         start = time.time()
         for iter, (inputs, targets) in enumerate(train_loader):
@@ -298,7 +300,6 @@ for k in range(n_runs):
                                 if FLAGS.optimizer is not 'sgdr':
                                     fim.append(FIM)
 
-
                                 perts.append(pertw)
 
                                 if fisher:
@@ -306,7 +307,6 @@ for k in range(n_runs):
                                                                             FLAGS.diag_load_const * pertw)
                                     # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
                                 elif inv_fisher:
-
                                     inv_FIM = 1/(FIM+1e-7)
                                     inv_FIM = inv_FIM * 1e-7
                                     inv_fim.append(inv_FIM)
