@@ -23,7 +23,7 @@ weight decay
 
 tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 200, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 300, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
 tf.app.flags.DEFINE_float('weight_decay', 2e-4, 'weight decay value')
 # tf.app.flags.DEFINE_float('weight_decay', 100, 'weight decay value')
@@ -65,7 +65,10 @@ tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Resnet18/FP/Run0/resnet
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
-tf.app.flags.DEFINE_boolean('logging', False,'whether to enable writing to a logfile')
+tf.app.flags.DEFINE_boolean('logging', True,'whether to enable writing to a logfile')
+tf.app.flags.DEFINE_float('lr_end', 2e-4, 'learning rate at end of cosine decay')
+
+
 
 '''
 
@@ -155,11 +158,6 @@ elif not FLAGS.debug:
 if FLAGS.loadpath is not None:
     config_str += 'Loadpath:\t' + FLAGS.loadpath + '\n'
 
-if FLAGS.logging:
-    logpath =SAVEPATH + '/logfile.txt'
-
-    logfile = open(logpath, 'w+')
-
 etaval = FLAGS.eta
 
 #Torch gpu stuff
@@ -189,6 +187,20 @@ test_accs=[]
 
 for k in range(n_runs):
     i=0
+
+    j=0
+
+    while os.path.exists(os.path.join(SAVEPATH, 'Run%d' % j)):
+        j+=1
+
+    SAVEPATH_run = os.path.join(SAVEPATH, 'Run%d' % j)
+
+    os.makedirs(SAVEPATH_run, exist_ok=True)
+
+    if FLAGS.logging:
+        logpath = SAVEPATH_run + '/logfile.txt'
+        logfile = open(logpath, 'w+')
+
     model = ResNet_cifar10(is_quantized=FLAGS.is_quantized)
     # exit()
     model.cuda()
@@ -205,7 +217,7 @@ for k in range(n_runs):
     elif FLAGS.optimizer=='sgdr':
         # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
         optimizer = SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
-        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
+        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
         # CosineAnnealingLR()
     # print(model.conv1.quantize_input)
     # exit()
@@ -247,16 +259,16 @@ for k in range(n_runs):
         test_loss, test_acc = test_model(test_loader, teacher_model, criterion, printing=False, eta=etaval)
         logstr += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
         config_str += logstr
-
+    # exit()
+    print(logstr)
     if FLAGS.logging:
-        print(logstr)
         logfile.write(logstr)
         logfile.flush()
 
     for epoch in range(n_epochs):
 
 
-        logfile='\n\n****** NEXT EPOCH ******\n'
+        logstr='****** NEXT EPOCH ******\n'
         model.train()
         start = time.time()
         for iter, (inputs, targets) in enumerate(train_loader):
@@ -295,32 +307,51 @@ for k in range(n_runs):
 
                                 pertw = layer.weight - layer.qweight
                                 layer.weight.pert = pertw
-                                FIM = layer.weight.grad * layer.weight.grad
 
-                                if FLAGS.optimizer is not 'sgdr':
-                                    fim.append(FIM)
+
 
                                 perts.append(pertw)
 
-                                if fisher:
-                                    layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
-                                                                            FLAGS.diag_load_const * pertw)
-                                    # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
-                                elif inv_fisher:
-                                    inv_FIM = 1/(FIM+1e-7)
-                                    inv_FIM = inv_FIM * 1e-7
-                                    inv_fim.append(inv_FIM)
+                                if FLAGS.optimizer is not 'sgdr':
+                                    FIM = layer.weight.grad * layer.weight.grad
+                                    fim.append(FIM)
+                                    if fisher:
+                                        layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.grad * layer.weight.grad * pertw +
+                                                                                FLAGS.diag_load_const * pertw)
+                                        # layer.weight.grad += FLAGS.gamma * 2 * (1/(layer.weight.grad * layer.weight.grad) * pertw )
+                                    elif inv_fisher:
+                                        inv_FIM = 1/(FIM+1e-7)
+                                        inv_FIM = inv_FIM * 1e-7
+                                        inv_fim.append(inv_FIM)
 
-                                    layer.weight.grad += torch.clamp(FLAGS.gamma * 2 * (inv_FIM * pertw),-.01,.01)
-                                    # layer.weight.reg_grad = FLAGS.gamma * 2 * (inv_FIM *(pertw + FLAGS.diag_load_const * pertw))
+                                        layer.weight.grad += torch.clamp(FLAGS.gamma * 2 * (inv_FIM * pertw),-.01,.01)
+                                        # layer.weight.reg_grad = FLAGS.gamma * 2 * (inv_FIM *(pertw + FLAGS.diag_load_const * pertw))
 
-                                elif l2:
-                                    layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
+                                    elif l2:
+                                        layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
 
+            # if FLAGS.regularization=='fisher' and epoch==0 and iter==0:
+            if (FLAGS.regularization=='fisher' or FLAGS.regularization=='inv_fisher') and epoch==0 and iter==0:
+                for group in optimizer.param_groups:
+                    for p in group['params']:
+                        if hasattr(p, 'pert'):
+                            p.fisher = optimizer.state[p]['exp_avg_sq']
+
+                            p.inv_FIM = 1 / (p.fisher + 1e-7)
+                            p.inv_FIM = p.inv_FIM * 1e-7
+                # print('SAVING FISHER FOR THETA HAT')
+
+            # ps=[]
+            # for p in model.parameters():
+            #     ps.append([p])
+
+            # print(sum([np.sum(np.ones_like(p_[0].detach().cpu().numpy())) for p_ in ps]))
 
             if FLAGS.optimizer=='sgdr':
-                optimizer.step(regularizer=FLAGS.regularization)
-
+                # loss, fmsqe = optimizer.step(regularizer=FLAGS.regularization, return_fmsqe=True)
+                _, fmsqe = optimizer.step(regularizer=FLAGS.regularization, return_fmsqe=True)
+                fmsqe = fmsqe * FLAGS.batch_size
+                # exit()
                 # code to access fisher information from the optimizer
                 for group in optimizer.param_groups:
                     for p in group['params']:
@@ -339,21 +370,25 @@ for k in range(n_runs):
                 # corrected = fim+1e-6
                 #
                 # plt.figure()
-                # plt.hist(inv_fim, log=True, bins=50)
+                # plt.hist(inv_fim, log=False, bins=100)
                 # plt.title('inv fisher')
                 #
                 # plt.figure()
-                # plt.hist(fim, log=True,bins=50)
+                # plt.hist(fim/np.max(fim), log=False, bins=100)
+                # plt.title('scaled fisher')
+                #
+                # plt.figure()
+                # plt.hist(fim, log=False,bins=100)
                 # plt.title('fisher')
                 #
                 # log_fim = np.log2(corrected)
                 # plt.figure()
-                # plt.hist(np.log(corrected), log=True,bins=50)
+                # plt.hist(np.log(corrected), log=False,bins=100)
                 # plt.title('log corrected fisher')
                 #
                 # plt.figure()
                 # scaled = inv_fim * 1e-6
-                # plt.hist(scaled, log=True, bins=50)
+                # plt.hist(scaled, log=False, bins=100)
                 # plt.title('scaled inv')
                 #
                 # plt.figure()
@@ -361,16 +396,16 @@ for k in range(n_runs):
                 # inv_log_fim = inv_log_fim - np.min(inv_log_fim )
                 #
                 # # inv_log_fim = (inv_log_fim-np.min(inv_log_fim))/(np.max(inv_log_fim))
-                # plt.hist(inv_log_fim, log=True, bins=50)
+                # plt.hist(inv_log_fim, log=False, bins=100)
                 # plt.title('scaled log inv')
                 #
                 #
                 # plt.figure()
-                # plt.hist(corrected, log=True, bins=50)
+                # plt.hist(corrected, log=False, bins=100)
                 # plt.title('corrected fisher')
                 #
                 # plt.show()
-
+                #
                 # exit()
 
                 # exit()
@@ -389,7 +424,8 @@ for k in range(n_runs):
             if i%record_interval==0 or i==0:
                 msqe = sum([torch.sum(pert_ * pert_) for pert_ in perts])
                 fim_trace = sum([torch.sum(fim_) for fim_ in fim])
-                msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace )
+                # msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace )
+                msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fmsqe, fim_trace )
                 print(msg)
                 logstr += msg
 
@@ -443,13 +479,7 @@ for k in range(n_runs):
         logfile.write(msg)
         logfile.flush()
 
-    j=0
-    while os.path.exists(os.path.join(SAVEPATH, 'Run%d' % j)):
-        j+=1
 
-    SAVEPATH_run = os.path.join(SAVEPATH, 'Run%d' % j)
-
-    os.makedirs(SAVEPATH_run, exist_ok=True)
     config_path = os.path.join(SAVEPATH_run, 'config_str.txt')
     model_path = os.path.join(SAVEPATH_run, 'resnet')
 

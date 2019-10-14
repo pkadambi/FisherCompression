@@ -295,6 +295,13 @@ class QConv2d(nn.Conv2d):
         else:
             self.max_value = self.weight.max()
 
+
+        if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
+            self.max_value=1
+
+        if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
+            self.min_value=-1
+
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
 
@@ -376,6 +383,12 @@ class QLinear(nn.Linear):
             self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
         else:
             self.max_value = self.weight.max()
+
+        if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
+            self.max_value=1
+
+        if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
+            self.min_value=-1
 
     def forward(self, input, eta=0.):
 

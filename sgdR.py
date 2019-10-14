@@ -62,7 +62,7 @@ class SGDR(Optimizer):
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
-    def step(self, regularizer = None, closure=None):
+    def step(self, regularizer = None, closure=None, return_fmsqe=False):
         """Performs a single optimization step.
         Arguments:
             closure (callable, optional): A closure that reevaluates the model
@@ -80,6 +80,8 @@ class SGDR(Optimizer):
 
             # import pdb
             # pdb.set_trace()
+            if return_fmsqe:
+                fmsqe=0
 
             for p in group['params']:
                 if p.grad is None:
@@ -113,24 +115,40 @@ class SGDR(Optimizer):
                 p.data.add_(-group['lr'], d_p)
 
                 if hasattr(p, 'pert') and regularizer is not None:
+                    if return_fmsqe:
+                        # print(p)
+                        # fmsqe = fmsqe + torch.sum(p.pert * p.pert * exp_avg_sq/torch.max(exp_avg_sq))
+                        fmsqe = fmsqe + torch.sum(p.pert * p.pert * p.inv_FIM/torch.max(p.inv_FIM))
                     if regularizer=='l2':
-                        p.data.add_(-group['lr'], p.pert)
+                        p.data.add_(-gamma * group['lr'], p.pert)
 
                     elif regularizer=='fisher':
-                        reg_grad = p.pert * exp_avg_sq
+                        # import pdb
+                        # pdb.set_trace()
+                        # reg_grad = p.pert * (exp_avg_sq/torch.max(exp_avg_sq))
+                        reg_grad = p.pert * (p.fisher/torch.max(p.fisher))
+                        # reg_grad = reg_grad.clamp(-.1, .1)
+                        # p.data.add_(-gamma * group['lr'], reg_grad)
                         p.data.add_(-gamma * group['lr'], reg_grad)
                         #diagonal loading for fisher regularizer
-                        p.data.add_(-gamma * diag_load * group['lr'], p.pert)
+                        # p.data.add_(-gamma * diag_load * group['lr'], p.pert)
 
                     elif regularizer == 'inv_fisher':
-                        FIM = exp_avg_sq
+                        # FIM = exp_avg_sq
+                        # # FIM = p.grad.data * p.grad.data
+                        #
+                        # inv_FIM = 1 / (FIM + 1e-7)
+                        # inv_FIM = inv_FIM * 1e-7
+                        reg_grad = p.inv_FIM * p.pert
 
-                        inv_FIM = 1 / (FIM + 1e-7)
-                        inv_FIM = inv_FIM * 1e-7
-                        reg_grad = inv_FIM * p.pert
-
-                        p.data.add_(-gamma * group['lr'], p.pert)
+                        p.data.add_(-gamma * group['lr'],  reg_grad)
                         # diagonal loading for fisher regularizer
-                        p.data.add_(-gamma * diag_load * group['lr'], p.pert)
-        return loss
+                        # p.data.add_(-gamma * diag_load * group['lr'], p.pert)
+
+        # return loss
+
+        if return_fmsqe:
+            return loss, fmsqe
+        else:
+            return loss
 
