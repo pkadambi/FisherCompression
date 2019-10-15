@@ -296,11 +296,11 @@ class QConv2d(nn.Conv2d):
             self.max_value = self.weight.max()
 
 
-        if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
-            self.max_value=1
-
-        if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
-            self.min_value=-1
+        # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
+        #     self.max_value=1
+        #
+        # if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
+        #     self.min_value=-1
 
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
@@ -347,6 +347,8 @@ class QConv2d(nn.Conv2d):
             output = F.conv2d(qinput, self.qweight, self.qbias, self.stride,
                                   self.padding, self.dilation, self.groups)
 
+            if FLAGS.q_min is not None:
+                self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
         else:
 
             output = F.conv2d(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
@@ -384,11 +386,11 @@ class QLinear(nn.Linear):
         else:
             self.max_value = self.weight.max()
 
-        if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
-            self.max_value=1
-
-        if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
-            self.min_value=-1
+        # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
+        #     self.max_value=1
+        #
+        # if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
+        #     self.min_value=-1
 
     def forward(self, input, eta=0.):
 
@@ -420,6 +422,11 @@ class QLinear(nn.Linear):
 
 
             output = F.linear(qinput, self.qweight, self.qbias)
+
+            if FLAGS.q_min is not None:
+                self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
+
+
 
         else:
 
