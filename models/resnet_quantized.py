@@ -156,8 +156,10 @@ class ResNet_cifar10(ResNet):
         super(ResNet_cifar10, self).__init__()
 
         if n_bits_wt<=2:
-            self.inflate = 4
-
+            if FLAGS.inflate is None:
+                self.inflate=4
+            else:
+                self.inflate = FLAGS.inflate
         else:
             self.inflate = 2
 
