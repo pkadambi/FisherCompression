@@ -41,9 +41,11 @@ for val, sig in zip(wts, stds):
     mu = val
     sigma = sig/25
     x = np.linspace(mu - 3 * sigma, mu + 3 * sigma, 100)
-    plt.plot(x, stats.norm.pdf(x, mu, sigma))
+    print(stats.norm.pdf(x, mu, sigma))
+    # exit()
+    plt.plot(x, stats.norm.pdf(x, mu, sigma)/(sum(stats.norm.pdf(x, mu, sigma))/max(stats.norm.pdf(x, mu, sigma))))
 
-plt.title('How PCM Noise Affects Weights as a Function of Increasing Values')
+plt.title('Resulting Weight Distribution for \nExample Set of Weight Values Due to PCM Analog Noise')
 plt.grid(True)
 plt.ylabel('Density')
 plt.xlabel('Example Weight Value')

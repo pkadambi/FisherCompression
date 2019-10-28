@@ -22,6 +22,9 @@ cosine decay rate
 weight decay
 
 '''
+tf.app.flags.DEFINE_string('noise_scale',None,'`inv_fisher` or `fisher`')
+
+tf.app.flags.DEFINE_string('activation', None,'`tanh` or `relu`')
 
 tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
@@ -33,7 +36,6 @@ tf.app.flags.DEFINE_integer('inflate', None,'inflating factor for resnet (may ne
 
 tf.app.flags.DEFINE_float('lr', .1, 'learning rate')
 
-# tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_boolean('is_quantized', True, 'whether the network is quantized')
 tf.app.flags.DEFINE_integer('n_bits_act', 4, 'number of bits activation')
 tf.app.flags.DEFINE_integer('n_bits_wt', 4, 'number of bits weight')
@@ -70,11 +72,10 @@ tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
 tf.app.flags.DEFINE_boolean('logging', True,'whether to enable writing to a logfile')
 tf.app.flags.DEFINE_float('lr_end', 2e-4, 'learning rate at end of cosine decay')
-tf.app.flags.DEFINE_boolean('constant_fisher', False,'whether to keep fisher/inv_fisher constant from when the checkpoint')
+tf.app.flags.DEFINE_boolean('constant_fisher', True,'whether to keep fisher/inv_fisher constant from when the checkpoint')
 
 tf.app.flags.DEFINE_string('fisher_method', 'adam','which method to use when computing fisher')
 tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use layerwise fisher')
-
 
 '''
 
@@ -82,7 +83,7 @@ NOTE: the following imports must be after flags declarations since these files q
 
 '''
 from sgdR import SGDR
-
+from adamR import AdamR
 from models.resnet_quantized import ResNet_cifar10
 from models.resnet_binary import ResNet_cifar10_binary
 FLAGS = tf.app.flags.FLAGS
@@ -149,7 +150,7 @@ criterion = nn.CrossEntropyLoss()
 
 train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
-
+# exit()
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
                                            num_workers=n_workers, pin_memory=True)
 test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True,
@@ -189,7 +190,12 @@ for k in range(n_runs):
         logpath = SAVEPATH_run + '/logfile.txt'
         logfile = open(logpath, 'w+')
 
-    model = ResNet_cifar10(is_quantized=FLAGS.is_quantized)
+    if FLAGS.activation == 'tanh':
+        activation = nn.Hardtanh()
+    elif FLAGS.activation is None:
+        activation = nn.ReLU()
+
+    model = ResNet_cifar10(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
     # exit()
     model.cuda()
     # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
@@ -206,6 +212,11 @@ for k in range(n_runs):
         # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
         optimizer = SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
+
+    elif FLAGS.optimizer == 'adamr':
+        # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
+        optimizer = AdamR(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.weight_decay)
+        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
         # CosineAnnealingLR()
     # print(model.conv1.quantize_input)
     # exit()
@@ -216,6 +227,7 @@ for k in range(n_runs):
 
     if FLAGS.loadpath is not None:
         loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k), 'resnet')
+        print('Restoring model to train from:\t' + loadpath)
         checkpoint = torch.load(loadpath)
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
@@ -223,10 +235,12 @@ for k in range(n_runs):
         optimizer.param_groups[0]['lr'] = FLAGS.lr
 
         for l, (name, layer) in enumerate(model.named_modules()):
-            if 'conv' in name or 'fc' in name:
-                if hasattr(layer, 'weight'):
-                    layer.set_min_max()
-
+            # print(name)
+            if FLAGS.q_min is None and FLAGS.q_max is None:
+                if 'conv' in name or 'fc' in name:
+                    if hasattr(layer, 'weight'):
+                        layer.set_min_max()
+        # exit()
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
         logstr+=msg
@@ -236,6 +250,7 @@ for k in range(n_runs):
 
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
+        print('Restoring teacher model from:\t' + FLAGS.fp_loadpath)
 
         teacher_model = ResNet_cifar10(is_quantized=False)
         teacher_model.cuda()
@@ -282,6 +297,11 @@ for k in range(n_runs):
 
     for epoch in range(n_epochs):
 
+
+        if epoch>150 and FLAGS.n_bits_wt<=2:
+            for group in optimizer.param_groups:
+                for p in group['params']:
+                    group['weight_decay']=0.
 
         logstr='****** NEXT EPOCH ******\n'
         model.train()
@@ -339,9 +359,8 @@ for k in range(n_runs):
                                 elif FLAGS.fisher_method=='g2':
                                     p.fisher = p.grad * p.grad * FLAGS.batch_size
 
-                                p.inv_FIM = 1 / (p.fisher + 1e-7)
-                                p.inv_FIM = p.inv_FIM * 1e-7
-                                max_inv_fisher = torch.max(max_inv_fisher, torch.max(p.inv_FIM))
+
+                                # max_inv_fisher = torch.max(max_inv_fisher, torch.max(p.inv_FIM))
 
                     # print(max_orig_fisher)
                     for group in optimizer.param_groups:
@@ -349,7 +368,7 @@ for k in range(n_runs):
                             if hasattr(p, 'pert'):
 
                                 orig_fisher.append(p.fisher.view(-1).cpu().numpy()/max_orig_fisher.cpu().numpy())
-                                orig_inv_fish.append(p.inv_FIM.view(-1).cpu().numpy()/max_inv_fisher.cpu().numpy())
+                                # orig_inv_fish.append(p.inv_FIM.view(-1).cpu().numpy()/max_inv_fisher.cpu().numpy())
 
                                 if FLAGS.layerwise_fisher:
                                     p.fisher = p.fisher / torch.max(p.fisher)
@@ -357,9 +376,14 @@ for k in range(n_runs):
                                 else:
                                     p.fisher = p.fisher / max_orig_fisher
 
-                                p.inv_FIM = p.inv_FIM / max_inv_fisher
+                                p.inv_FIM = 1 / (p.fisher + 1e-7)
+                                p.inv_FIM[p.inv_FIM>1e4] = 1e4
+                                p.inv_FIM = p.inv_FIM/1e4
+                                inv_f = p.inv_FIM.view(-1).cpu().numpy() * max_orig_fisher.cpu().numpy()
+                                orig_inv_fish.append(inv_f)
 
                 else:
+
                     if not FLAGS.constant_fisher:
                         # pdb.set_trace()
                         for group in optimizer.param_groups:
@@ -372,6 +396,8 @@ for k in range(n_runs):
 
                                     p.inv_FIM = 1 / (p.fisher + 1e-7)
                                     p.inv_FIM = p.inv_FIM * 1e-7
+            # else:
+            #     if FLAGS.regularization=='fisher_training':
 
 
             # print(sum([np.sum(np.ones_like(p_[0].detach().cpu().numpy())) for p_ in ps]))
@@ -381,6 +407,7 @@ for k in range(n_runs):
 
             else:
                 optimizer.step()
+                reg_val=torch.tensor(0.)
 
             train_acc = accuracy(output, targets).item()
             lossval = loss.item()
@@ -425,7 +452,7 @@ for k in range(n_runs):
                                 corcoeffs_fisher.append(np.corrcoef(pertvalue, orig_fisher[jj])[1,0])
                                 spearmans_fisher.append(stats.spearmanr(pertvalue, orig_fisher[jj])[0])
 
-                                if FLAGS.regularization=='inv_fisher' or FLAGS.regularization=='fisher':
+                                if 'fisher' in FLAGS.regularization=='inv_fisher':
                                     spearmans_regularizer.append(
                                         stats.spearmanr(pertvalue, p.inv_FIM.view(-1).cpu().numpy())[0])
                                     corcoeffs_regularizer.append(
@@ -448,7 +475,7 @@ for k in range(n_runs):
                     msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6f]| Trace [%.4f]| ORIG FMSQE [%.5f]| Orig Corr [%.2f]| Orig Spearman [%.2f]' % (
                     i, lossval, train_acc, msqe, fmsqe_adam, reg_val, fim_trace_adam, orig_adam_fisher_msqe, np.mean(corcoeffs_fisher), np.mean(spearmans_fisher))
                 else:
-                    msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6]| Trace [%.4f]' % \
+                    msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6f]| Trace [%.4f]' % \
                           (i, lossval, train_acc, msqe, fmsqe_adam, reg_val, fim_trace_adam)
                 print(msg)
 
@@ -568,7 +595,16 @@ for k in range(n_runs):
             file.close()
 
 
+        #save model every 15 epochs
+        model_path = os.path.join(SAVEPATH_run, 'resnet')
 
+        # if epoch % 5 ==0:
+        #     torch.save({
+        #         'epoch': epoch + 1,
+        #         'model_state_dict': model.state_dict(),
+        #         'optimizer_state_dict': optimizer.state_dict(),
+        #         'loss': loss}, model_path)
+        #     print('SAVING TO: \t' + SAVEPATH_run)
         # print(model.conv1.quantize_input.running_min)
         # print(model.conv1.quantize_input.running_max)
 
@@ -610,11 +646,13 @@ for k in range(n_runs):
     config_file.close()
 
     torch.save({
-    'epoch': epoch + 1,
-    'model_state_dict': model.state_dict(),
-    'optimizer_state_dict': optimizer.state_dict(),
-    'loss': loss}, model_path)
+        'epoch': epoch + 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss}, model_path)
     print('SAVING TO: \t' + SAVEPATH_run)
+
+
 results_str = '\n******************************\n'
 results_str += 'Accs: \t'+ str(test_accs) + '\n'
 results_str += 'Avg accuracy: %.3f +\- %.4f' % (np.mean(test_accs), np.std(test_accs)) + '\n'

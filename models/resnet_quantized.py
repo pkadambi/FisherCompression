@@ -9,7 +9,6 @@ __all__ = ['resnet_quantized_float_bn']
 FLAGS = tf.app.flags.FLAGS
 
 
-NUM_BITS = 8
 n_bits_wt = FLAGS.n_bits_wt
 n_bits_act = FLAGS.n_bits_act
 
@@ -32,16 +31,31 @@ def init_model(model):
 class BasicBlock(nn.Module):
     expansion = 1
 
-    def __init__(self, is_quantized, inplanes, planes, stride=1, downsample_conv=None, downsample_bn=None):
+    def __init__(self, is_quantized, inplanes, planes, stride=1, downsample_conv=None, downsample_bn=None,
+                 activation=None, bn_pos=None):
         super(BasicBlock, self).__init__()
         self.conv1 = conv3x3(is_quantized, inplanes, planes, stride)
         self.bn1 = nn.BatchNorm2d(planes)
-        self.relu = nn.ReLU()
         self.conv2 = conv3x3(is_quantized, planes, planes)
         self.bn2 = nn.BatchNorm2d(planes)
         self.downsample_conv = downsample_conv
         self.downsample_bn = downsample_bn
         self.stride = stride
+
+        if activation is None:
+            self.activation = nn.ReLU()
+        else:
+            self.activation = activation
+
+        if bn_pos=='pre_res':
+            self.pre_res_bn=True
+            self.post_res_bn=False
+        elif bn_pos=='post_res':
+            self.pre_res_bn = False
+            self.post_res_bn = True
+        else:
+            self.pre_res_bn = False
+            self.post_res_bn = False
 
     def forward(self, x):
         residual = x
@@ -52,15 +66,24 @@ class BasicBlock(nn.Module):
 
         out = self.conv1(x)
         out = self.bn1(out)
-        out = self.relu(out)
+        out = self.activation(out)
 
         out = self.conv2(out)
-        out = self.bn2(out)
 
+        if self.post_res_bn:
+            out += residual
+            out = self.bn2(out)
+            out = self.activation(out)
+        elif self.pre_res_bn:
+            out = self.bn2(out)
+            out += residual
+            out = self.activation(out)
+        else:
+            out += residual
 
-
-        out += residual
-        out = self.relu(out)
+        # if self.do_bntan:
+        #     out = self.bn2(out)
+        #     out = self.tanh2(out)
 
         return out
 
@@ -112,7 +135,7 @@ class ResNet(nn.Module):
     def __init__(self):
         super(ResNet, self).__init__()
 
-    def _make_layer(self, block, planes, blocks, stride=1):
+    def _make_layer(self, block, planes, blocks, stride=1, bn_pos=None):
         ds_conv = None
         ds_bn = None
         if stride != 1 or self.inplanes != planes * block.expansion:
@@ -123,19 +146,19 @@ class ResNet(nn.Module):
             ds_bn = nn.BatchNorm2d(planes * block.expansion)
 
         layers = []
-        layers.append(block(self.is_quantized, self.inplanes, planes, stride, ds_conv, ds_bn))
+        layers.append(block(self.is_quantized, self.inplanes, planes, stride, ds_conv, ds_bn, bn_pos=bn_pos))
 
         self.inplanes = planes * block.expansion
 
         for i in range(1, blocks):
-            layers.append(block(self.is_quantized, self.inplanes, planes))
+            layers.append(block(self.is_quantized, self.inplanes, planes, bn_pos=bn_pos))
 
         return nn.Sequential(*layers)
 
     def forward(self, x, eta=0.):
         x = self.conv1(x, eta)
         x = self.bn1(x)
-        x = self.relu(x)
+        x = self.activation(x)
         x = self.maxpool(x)
 
         x = self.layer1(x)
@@ -152,11 +175,11 @@ class ResNet(nn.Module):
 class ResNet_cifar10(ResNet):
 
     def __init__(self, num_classes=10,
-                 block=BasicBlock, depth=18, is_quantized=None):
+                 block=BasicBlock, depth=18, is_quantized=None, inflate=None, activation=None):
         super(ResNet_cifar10, self).__init__()
 
-        if n_bits_wt<=2:
-            if FLAGS.inflate is None:
+        if n_bits_wt<=2 and is_quantized:
+            if inflate is None:
                 self.inflate=4
             else:
                 self.inflate = FLAGS.inflate
@@ -177,12 +200,26 @@ class ResNet_cifar10(ResNet):
                              bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
 
         self.bn1 = nn.BatchNorm2d(16 * self.inflate)
-        self.relu = nn.ReLU()
+
+        if FLAGS.activation is None:
+            self.activation = nn.ReLU()
+            bn_pos='pre_res'
+        elif FLAGS.activation=='tanh':
+            self.activation = activation
+            bn_pos='post_res'
+            # print('IM HERE')
+            # exit()
+
         self.maxpool = lambda x: x
-        self.layer1 = self._make_layer(block, 16 * self.inflate, n)
-        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2)
-        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2)
-        self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2)
+        self.layer1 = self._make_layer(block, 16 * self.inflate, n, bn_pos=bn_pos)
+        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2, bn_pos=bn_pos)
+        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2, bn_pos=bn_pos)
+
+        if FLAGS.activation=='tanh':
+            self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2, bn_pos=None)
+        else:
+            self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2, bn_pos=bn_pos)
+
         self.avgpool = nn.AvgPool2d(4)
         self.fc = QLinear(128 * self.inflate, num_classes, is_quantized=self.is_quantized, noise=self.noise,
                            num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)

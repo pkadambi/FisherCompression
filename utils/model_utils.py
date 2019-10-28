@@ -9,7 +9,7 @@ from bokeh.io import output_file, save, show
 from bokeh.plotting import figure
 from bokeh.layouts import column
 import torch.nn.functional as F
-
+from torch.autograd import Variable
 
 
 def loss_fn_kd(student_logits, teacher_logits, T):
@@ -20,10 +20,14 @@ def loss_fn_kd(student_logits, teacher_logits, T):
     and student expects the input tensor to be log probabilities! See Issue #2
     """
 
+
     teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
 
     teacher_soft_logits = teacher_soft_logits.float()
     student_soft_logits = F.log_softmax(student_logits/T, dim=1)
+
+
+    #For KL(p||q), p is the teacher distribution (the target distribution), and
     KD_loss = nn.KLDivLoss(reduction='batchmean')(student_soft_logits, teacher_soft_logits)
     KD_loss = (T ** 2) * KD_loss
     # KD_loss = nn.KLDivLoss()(F.log_softmax(outputs/T, dim=1), F.softmax(teacher_outputs/T, dim=1)) * (alpha * T * T)
@@ -123,7 +127,7 @@ def adjust_optimizer(optimizer, epoch, config):
 
     return optimizer
 
-def test_model(data_loader, model, criterion, printing=True, eta=None):
+def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None):
 
     #switch to eval mode
     print('Evaluating Model...')
@@ -133,10 +137,10 @@ def test_model(data_loader, model, criterion, printing=True, eta=None):
     n_test = 0.
     n_correct = 0.
     loss = 0.
-
+    kl_loss = 0.
     for iter, (inputs, target) in enumerate(data_loader):
         n_batch = inputs.size()[0]
-
+        # print(iter)
         inputs = inputs.cuda()
         target = target.cuda()
 
@@ -146,13 +150,24 @@ def test_model(data_loader, model, criterion, printing=True, eta=None):
             output = model(inputs)
 
         loss += criterion(output, target).item()
-        acc_ = accuracy(output, target)
+        # acc_ = accuracy(output, target)
 
         n_correct += accuracy(output, target).item() * n_batch/100.
         n_test += n_batch
 
+        if teacher_model is not None:
+            with torch.no_grad():
+                teacher_output = teacher_model(inputs)
+                kl_loss += loss_fn_kd(output, teacher_output, T=1)
+                # print(kl_loss)
+            # print(kl_loss.size())
+            # exit()
+
     test_accuracy= 100*n_correct/n_test
     test_loss = 128*loss/n_test
+    kl_loss = 128*kl_loss/n_test
+
+
 
     if printing:
         print('Test Accuracy %.3f'% test_accuracy)
@@ -161,7 +176,10 @@ def test_model(data_loader, model, criterion, printing=True, eta=None):
     #Revert model to training mode before exiting
     model.train()
 
-    return test_loss, test_accuracy
+    if teacher_model is None:
+        return test_loss, test_accuracy
+    else:
+        return test_loss, test_accuracy, kl_loss
 
 
 def adjust_optimizer(optimizer, epoch, config):

@@ -243,9 +243,9 @@ for k in range(n_runs):
                     if hasattr(layer, 'weight'):
                         # print(name)
                         pertw = layer.weight - layer.qweight
-                        pertb = layer.bias - layer.qbias
+                        # pertb = layer.bias - layer.qbias
                         layer.weight.pert = pertw
-                        layer.bias.pert = pertb
+                        # layer.bias.pert = pertb
 
 
             if iter==0 and epoch==0 and FLAGS.regularization is not None:
@@ -258,52 +258,67 @@ for k in range(n_runs):
 
                         # layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
                         # layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
-            # exit()
-            for layer in model.modules():
-                with torch.no_grad():
-                    if hasattr(layer, 'weight'):
-                        pertw = layer.weight - layer.qweight
-                        pertb = layer.bias - layer.qbias
-                        perts.append(pertw)
-                        # FIM_diag = layer.weight.grad * layer.weight.grad
-                        fim.append(layer.weight.fisher)
-                        FIM_diag = layer.weight.fisher
-                        FIM_diag_bias = layer.bias.fisher
-                        if fisher:
-                            layer.weight.grad += FLAGS.gamma * 2 * (layer.weight.fisher * pertw +
-                                                              FLAGS.diag_load_const * pertw)
-                            layer.bias.grad += FLAGS.gamma * 2 * (layer.bias.fisher * pertb +
-                                                                    FLAGS.diag_load_const * pertb)
-                        elif l2:
-                            layer.weight.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertw
-                            layer.bias.grad += FLAGS.gamma * 2 * FLAGS.diag_load_const * pertb
 
-                        elif inv_fisher:
-                            # FIM_diag = layer.weight.grad * layer.weight.grad + FLAGS.diag_load_const
-                            # FIM_diag_bias = layer.bias.grad * layer.bias.grad + FLAGS.diag_load_const
+            N_MC_ITERS = 30
+            N_noise_level = 40
+
+            test_acc_matrix = np.zeros([N_MC_ITERS, N_noise_level])
+            average_noise_magnitudes = np.zeros([N_MC_ITERS, N_noise_level])
+            fisher_loss = np.zeros([N_MC_ITERS, N_noise_level])
+            kl_loss = np.zeros([N_MC_ITERS, N_noise_level])
+
+            kl_criterion = nn.KLDivLoss()
+
+            for zz in range(N_noise_level):
+
+                for kk in range(N_MC_ITERS):
+                    #Step 2: calculate noise
+                    # pdb.set_trace()
+                    num_wts = 0
+                    pert_mag = 0
+                    fim = []
+                    inv_fisher = []
+
+                    fisher_loss_ = 0.
+
+                    for p in model.parameters():
+                        if hasattr(p, 'fisher'):
+                            # pdb.set_trace()
+                            # p.noise = .25 * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
+                            p.noise = .15 * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
+                            p.noise = 3. * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
+
+                            #Step 2a: scale if needed
+                            if FLAGS.noise_scale=='fisher':
+                                p.noise = p.fisher * p.noise
+                            if FLAGS.noise_scale == 'fisher_randperm':
+                                p.noise = p.fisher * p.noise
+                                orig_size = p.noise.size()
+                                p.noise = p.noise.view(-1)
+                                p.noise = p.noise[torch.randperm(list(p.noise.size())[0])]
+                                p.noise = p.noise.view(orig_size)
+                            elif FLAGS.noise_scale=='fisher_nullspace':
+                                p.noise = (p.fisher < 1e-6).float() * p.noise
+                            elif FLAGS.noise_scale=='inv_fisher':
+                                p.noise = p.inv_FIM * p.noise
+
+                            # print(p.fisher.size())
+                            # print(p.noise.size())
+                            fisher_loss_ += torch.sum(p.fisher * p.noise * p.noise)
+
+                            #step 3: calculate perturbation average magnitude
+                            num_wts += p.data.numel()
+                            pert_mag += torch.sum(torch.abs(p.noise))
+
+                            # noise_mag = torch.sum((1/p.data.numel()) * torch.abs(p.noise))
 
 
+                            #step 4: noise weights
+                            p.data = p.data + p.noise
+                            fim.append(p.fisher.view(-1).cpu().numpy())
+                            inv_fisher.append(p.inv_FIM.view(-1).cpu().numpy())
 
-
-                            # print('Max')
-                            # print(torch.topk(FIM_diag.view(-1), 100)[0])
-                            # print('Min')
-                            # print(torch.topk(FIM_diag.view(-1), 100, largest=False)[0])
-                            # inv_FIM = (1/(FIM_diag+1e-7) )* 1e-7
-                            # inv_FIM_bias = (1/(FIM_diag_bias + 1e-7)) * 1e-7
-
-                            inv_FIM = (1/(FIM_diag + 1e-7) ) * 1e-7
-                            inv_FIM_bias = (1/(FIM_diag_bias + 1e-7))* 1e-7
-                            # print('Max')
-                            # print(torch.topk(inv_FIM.view(-1), 100)[0])
-                            # print('Min')
-                            # print(torch.topk(inv_FIM.view(-1), 100, largest=False)[0])
-
-
-                            layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
-                            layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
-            # exit()
-
+            exit()
             optimizer.step()
 
             train_acc = accuracy(output, targets).item()

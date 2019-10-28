@@ -436,5 +436,7 @@ class QLinear(nn.Linear):
 
 
     def set_min_max(self):
+        self.weight.max_value = self.weight.min()
+        self.weight.min_value = self.weight.min()
         self.min_value = self.weight.min()
         self.max_value = self.weight.max()
