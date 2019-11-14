@@ -130,7 +130,8 @@ def adjust_optimizer(optimizer, epoch, config):
 def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None):
 
     #switch to eval mode
-    print('Evaluating Model...')
+    if printing:
+        print('Evaluating Model...')
     model.eval()
 
 

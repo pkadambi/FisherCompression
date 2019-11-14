@@ -1,4 +1,3 @@
-
 import tensorflow as tf
 
 
@@ -349,6 +348,19 @@ for k in range(n_runs):
 
     os.makedirs(SAVEPATH_run, exist_ok=True)
     config_path = os.path.join(SAVEPATH_run, 'config_str.txt')
+    config_file = open(config_path, 'w+')
+
+
+    SAVEPATH_run = os.path.join(SAVEPATH, 'Run%d' % j)
+
+    flag_dict = FLAGS.flag_values_dict()
+
+    dict_ind = list(flag_dict.keys()).index('dataset')
+    keys = list(flag_dict.keys())
+    values = list(flag_dict.values())
+    for dict_ind_ in range(dict_ind, len(flag_dict)):
+        config_file.write(keys[dict_ind_] + ':\t' + str(values[dict_ind_])+'\n')
+        config_file.flush()
     model_path = os.path.join(SAVEPATH_run, 'lenet')
 
     f = open(config_path, 'w+')

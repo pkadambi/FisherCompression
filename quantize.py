@@ -139,7 +139,8 @@ class UniformQuantize(InplaceFunction):
         return grad_input, None, None, None, None, None, None, None, None
 
 
-class NoiseInjection(torch.autograd.Function):
+# class NoiseInjection(torch.autograd.Function):
+class NoiseInjection(InplaceFunction):
     '''
         Perform noise injection with straight-through estimator
     '''
@@ -151,16 +152,16 @@ class NoiseInjection(torch.autograd.Function):
 
         output = input.clone()
 
-        if ctx.noise == 'NVM':
-            noise_std = eta * (max_value - min_value)
+        # if ctx.noise == 'NVM':
+        noise_std = eta * (max_value - min_value)
 
-            noise = output.new(input.shape).normal_(mean=0, std=noise_std)
+        noise = output.new(input.shape).normal_(mean=0, std=noise_std)
 
-            output.add_(noise)
+        output.add_(noise)
 
-        elif ctx.noise == 'PCM':
-            # TODO: correct implementation of PCM noise model (send email to paul about how to do this)
-            noise_std = eta * (max_value - min_value)
+        # elif ctx.noise == 'PCM':
+        # TODO: correct implementation of PCM noise model (send email to paul about how to do this)
+        # noise_std = eta * (max_value - min_value)
 
         return output
 
@@ -168,7 +169,7 @@ class NoiseInjection(torch.autograd.Function):
     def backward(ctx, grad_output):
         #straight through estimator
         grad_input = grad_output.clone()
-        return grad_input
+        return grad_input, None, None, None
 
 def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
     out1 = F.conv2d(input.detach(), weight, bias,
@@ -186,6 +187,8 @@ def linear_biprec(input, weight, bias=None, num_bits_grad=None):
 
     return out1 + out2 - out1.detach()
 
+def noise_weight(input, eta, min_value, max_value):
+    return NoiseInjection().apply(input, eta, min_value, max_value)
 
 def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, noise=None, eta=.0, out_half=False):
     return UniformQuantize().apply(x, num_bits, min_value, max_value, eta, noise, num_chunks, out_half)
@@ -270,7 +273,7 @@ class QConv2d(nn.Conv2d):
 
     def __init__(self, in_channels, out_channels, kernel_size, is_quantized,
                  stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits_act=8,
-                 num_bits_weight=8, biprecision=False, noise=None):
+                 num_bits_weight=8, biprecision=False, noise=None, quant_input=True):
         super(QConv2d, self).__init__(in_channels, out_channels, kernel_size,
                                       stride, padding, dilation, groups, bias)
 
@@ -278,8 +281,9 @@ class QConv2d(nn.Conv2d):
         self.num_bits_weight = num_bits_weight
         self.is_quantized = is_quantized
 
+        self.quant_inp = quant_input
 
-        if self.num_bits_act<32 and is_quantized:
+        if self.num_bits_act<32 and is_quantized and self.quant_inp:
             self.quantize_input = QuantMeasure(self.num_bits_act)
 
         self.biprecision = biprecision
@@ -287,13 +291,17 @@ class QConv2d(nn.Conv2d):
 
         if FLAGS.q_min is not None:
             self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+            self.q_min = self.min_value
         else:
             self.min_value = self.weight.min()
+            self.q_min = None
 
         if FLAGS.q_max is not None:
             self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+            self.q_max = self.max_value
         else:
             self.max_value = self.weight.max()
+            self.q_max = None
 
 
         # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
@@ -308,19 +316,24 @@ class QConv2d(nn.Conv2d):
         #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
 
         if self.is_quantized:
-
-
-            if self.num_bits_act < 32:
-                qinput = self.quantize_input(input)
+            if self.quant_inp:
+                # if self.num_bits_act <=2:
+                #         qinput =  quantize(input, num_bits=self.num_bits_act,
+                #                        min_value=0,
+                #                        max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+                # elif self.num_bits_act < 32:
+                #     qinput = self.quantize_input(input)
+                if self.num_bits_act < 32:
+                    qinput = self.quantize_input(input)
+                else:
+                    qinput = input
             else:
                 qinput = input
 
-
-            if FLAGS.q_min is None and FLAGS.regularization is None:
+            if self.q_min is None and FLAGS.regularization is None:
                 self.min_value = self.weight.min()
-                # print(self.min_value)
 
-            if FLAGS.q_max is None and FLAGS.regularization is None:
+            if self.q_max is None and FLAGS.regularization is None:
                 self.max_value = self.weight.max()
 
 
@@ -331,20 +344,19 @@ class QConv2d(nn.Conv2d):
                                min_value=float(self.min_value),
                                max_value=float(self.max_value), noise=self.noise, eta=eta)
 
-
-
-            #TODO: ADD NOISING FUNCTION HERE
-
-
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
 
             else:
                 self.qbias = None
 
+            if eta>0:
+                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.max_value, min_value=self.min_value)
+                output = F.conv2d(qinput, self.qweight_n, self.qbias, self.stride,
+                                  self.padding, self.dilation, self.groups)
+            else:
 
-
-            output = F.conv2d(qinput, self.qweight, self.qbias, self.stride,
+                output = F.conv2d(qinput, self.qweight, self.qbias, self.stride,
                                   self.padding, self.dilation, self.groups)
 
             if FLAGS.q_min is not None:
@@ -378,13 +390,17 @@ class QLinear(nn.Linear):
 
         if FLAGS.q_min is not None:
             self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+            self.q_min = self.min_value
         else:
             self.min_value = self.weight.min()
+            self.q_min = None
 
         if FLAGS.q_max is not None:
             self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
+            self.q_max = self.max_value
         else:
             self.max_value = self.weight.max()
+            self.q_max = None
 
         # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
         #     self.max_value=1
@@ -395,16 +411,23 @@ class QLinear(nn.Linear):
     def forward(self, input, eta=0.):
 
         if self.is_quantized:
+
+            # if self.num_bits_act<=2:
+            #     qinput = quantize(input, num_bits=self.num_bits_act,
+            #                       min_value=0,
+            #                       max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+            # elif self.num_bits_act < 32:
+            #     qinput = self.quantize_input(input)
             if self.num_bits_act < 32:
                 qinput = self.quantize_input(input)
             else:
                 qinput = input
 
 
-            if FLAGS.q_min is None and FLAGS.regularization is None:
+            if self.q_min is None and FLAGS.regularization is None:
                 self.min_value = self.weight.min()
 
-            if FLAGS.q_max is None and FLAGS.regularization is None:
+            if self.q_max is None and FLAGS.regularization is None:
                 self.max_value = self.weight.max()
 
             # self.weight.data.clamp(self.min_value, self.max_value)
@@ -414,17 +437,22 @@ class QLinear(nn.Linear):
                                min_value=float(self.min_value),
                                max_value=float(self.max_value), noise=self.noise, eta=eta)
 
-            #TODO: choose whether to quantize bias
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
             else:
                 self.qbias = None
 
-
-            output = F.linear(qinput, self.qweight, self.qbias)
-
             if FLAGS.q_min is not None:
                 self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
+
+            if eta>0:
+                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.max_value, min_value=self.min_value)
+                output = F.linear(qinput, self.qweight_n, self.qbias)
+            else:
+
+                output = F.linear(qinput, self.qweight, self.qbias)
+
+
 
 
 

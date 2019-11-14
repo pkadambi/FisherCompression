@@ -8,5 +8,6 @@ checkpoints/
 junk.py
 junk/
 SavedModels
-
+NoisyModel
+tmp
 

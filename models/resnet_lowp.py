@@ -1,11 +1,12 @@
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
+from binarized_modules import  BinarizeLinear,BinarizeConv2d
+# from torchsummary import summary
 from quantize import QConv2d, QLinear
 import tensorflow as tf
 
-__all__ = ['resnet_quantized_float_bn']
-
+__all__ = ['resnet_lowp']
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -175,11 +176,11 @@ class ResNet(nn.Module):
 
         return x
 
-class ResNet_cifar10(ResNet):
+class ResNet_cifar10_lowp(ResNet):
 
     def __init__(self, num_classes=10,
                  block=BasicBlock, depth=18, is_quantized=None, inflate=None, activation=None):
-        super(ResNet_cifar10, self).__init__()
+        super(ResNet_cifar10_lowp, self).__init__()
 
         if n_bits_wt<=2 and is_quantized:
             if inflate is None:
@@ -272,8 +273,9 @@ class ResNet_imagenet(ResNet):
             {'epoch': 90, 'lr': 1e-4}
         ]
 
-def resnet_quantized_float_bn(**kwargs):
-    #TODO:fix for imagenet (and resnet34)
+def resnet_lowp(**kwargs):
+
+    return ResNet_cifar10_lowp(num_classes=10, block=BasicBlock)
 
     # num_classes, depth, dataset = map(
     #     kwargs.get, ['num_classes', 'depth', 'dataset'])
@@ -298,12 +300,18 @@ def resnet_quantized_float_bn(**kwargs):
     #
     # elif dataset == 'cifar10':
     #     num_classes = num_classes or 10
-    #     depth = depth or 56
+    #     depth = depth or 18
     #     return ResNet_cifar10(num_classes=num_classes,
     #                           block=BasicBlock, depth=depth)
-
-    return ResNet_cifar10(num_classes=10, block=BasicBlock)
-
-
-
-
+    #
+    # elif dataset == 'cifar100':
+    #     num_classes = num_classes or 100
+    #     depth = depth or 18
+    #     return ResNet_cifar10(num_classes=num_classes,
+    #                           block=BasicBlock, depth=depth)
+    #
+    # elif dataset == 'fashionmnist':
+    #     num_classes = num_classes or 10
+    #     depth = depth or 18
+    #     return ResNet_fashionmnist(num_classes=num_classes,
+    #                           block=BasicBlock, depth=depth)

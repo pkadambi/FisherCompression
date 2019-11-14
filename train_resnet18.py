@@ -85,6 +85,7 @@ NOTE: the following imports must be after flags declarations since these files q
 from sgdR import SGDR
 from adamR import AdamR
 from models.resnet_quantized import ResNet_cifar10
+from models.resnet_lowp import ResNet_cifar10_lowp
 from models.resnet_binary import ResNet_cifar10_binary
 FLAGS = tf.app.flags.FLAGS
 
@@ -168,7 +169,8 @@ for k in range(n_runs):
     while os.path.exists(os.path.join(SAVEPATH, 'Run%d' % j)):
         j+=1
     SAVEPATH_run = os.path.join(SAVEPATH, 'Run%d' % j)
-
+    print(SAVEPATH_run)
+    # exit()
     config_path = os.path.join(SAVEPATH_run, 'config_str.txt')
     os.makedirs(SAVEPATH_run, exist_ok=True)
 
@@ -195,7 +197,11 @@ for k in range(n_runs):
     elif FLAGS.activation is None:
         activation = nn.ReLU()
 
-    model = ResNet_cifar10(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
+    if n_bits_wt<=2:
+        # model = ResNet_cifar10_lowp(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate)
+        model = ResNet_cifar10_lowp(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
+    else:
+        model = ResNet_cifar10(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
     # exit()
     model.cuda()
     # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)

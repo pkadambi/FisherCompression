@@ -272,6 +272,10 @@ class ResNet_imagenet(ResNet):
             {'epoch': 90, 'lr': 1e-4}
         ]
 
+
+
+
+
 def resnet_quantized_float_bn(**kwargs):
     #TODO:fix for imagenet (and resnet34)
 
@@ -303,7 +307,3 @@ def resnet_quantized_float_bn(**kwargs):
     #                           block=BasicBlock, depth=depth)
 
     return ResNet_cifar10(num_classes=10, block=BasicBlock)
-
-
-
-

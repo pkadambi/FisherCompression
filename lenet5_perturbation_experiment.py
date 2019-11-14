@@ -27,13 +27,14 @@ tf.app.flags.DEFINE_float('gamma', 0.0001, 'gamma value')
 tf.app.flags.DEFINE_float('diag_load_const', 5e-5, 'diagonal loading constant')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
-tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
+tf.app.flags.DEFINE_string('loadpath', './SavedModels/Lenet/8ba_8bw/', 'directory to load model from')
 
 #TODO: find where this is actually used in the code
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 tf.app.flags.DEFINE_string('optimizer', 'adam', 'optimizer to use `sgd` or `adam`')
 
 #Distillation Params
+tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
@@ -259,8 +260,10 @@ for k in range(n_runs):
                         # layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
                         # layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
 
-            N_MC_ITERS = 30
-            N_noise_level = 40
+
+
+            N_MC_ITERS = 5
+            N_noise_level = 5
 
             test_acc_matrix = np.zeros([N_MC_ITERS, N_noise_level])
             average_noise_magnitudes = np.zeros([N_MC_ITERS, N_noise_level])
@@ -268,55 +271,22 @@ for k in range(n_runs):
             kl_loss = np.zeros([N_MC_ITERS, N_noise_level])
 
             kl_criterion = nn.KLDivLoss()
-
-            for zz in range(N_noise_level):
+            etas = [0, .05, .1, .2]
+            for zz, eta in enumerate(etas):
 
                 for kk in range(N_MC_ITERS):
-                    #Step 2: calculate noise
-                    # pdb.set_trace()
-                    num_wts = 0
-                    pert_mag = 0
-                    fim = []
-                    inv_fisher = []
+                    # test_loss, test_acc, kl_loss_ = test_model(test_loader, model, criterion, printing=False, eta=eta, teacher_model=teacher_model)
+                    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=eta)
 
-                    fisher_loss_ = 0.
-
-                    for p in model.parameters():
-                        if hasattr(p, 'fisher'):
-                            # pdb.set_trace()
-                            # p.noise = .25 * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
-                            p.noise = .15 * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
-                            p.noise = 3. * (1.5/(N_noise_level-zz)) * torch.randn(size=p.data.size(), device='cuda')
-
-                            #Step 2a: scale if needed
-                            if FLAGS.noise_scale=='fisher':
-                                p.noise = p.fisher * p.noise
-                            if FLAGS.noise_scale == 'fisher_randperm':
-                                p.noise = p.fisher * p.noise
-                                orig_size = p.noise.size()
-                                p.noise = p.noise.view(-1)
-                                p.noise = p.noise[torch.randperm(list(p.noise.size())[0])]
-                                p.noise = p.noise.view(orig_size)
-                            elif FLAGS.noise_scale=='fisher_nullspace':
-                                p.noise = (p.fisher < 1e-6).float() * p.noise
-                            elif FLAGS.noise_scale=='inv_fisher':
-                                p.noise = p.inv_FIM * p.noise
-
-                            # print(p.fisher.size())
-                            # print(p.noise.size())
-                            fisher_loss_ += torch.sum(p.fisher * p.noise * p.noise)
-
-                            #step 3: calculate perturbation average magnitude
-                            num_wts += p.data.numel()
-                            pert_mag += torch.sum(torch.abs(p.noise))
-
-                            # noise_mag = torch.sum((1/p.data.numel()) * torch.abs(p.noise))
+                    test_acc_matrix[kk, zz] = test_acc
 
 
-                            #step 4: noise weights
-                            p.data = p.data + p.noise
-                            fim.append(p.fisher.view(-1).cpu().numpy())
-                            inv_fisher.append(p.inv_FIM.view(-1).cpu().numpy())
+                print('\n\nEta Level:\t' + str(eta))
+                print('Avg Test Acc Noise Level:\t' + str(np.mean(test_acc_matrix[:, zz], axis=0)))
+
+            np.savetxt('./noisy_accs.txt', test_acc_matrix)
+            np.savetxt('./eta.txt', etas)
+            exit()
 
             exit()
             optimizer.step()

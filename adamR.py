@@ -75,6 +75,7 @@ class AdamR(Optimizer):
 
                 # Perform optimization step
                 grad = p.grad.data
+                # grad = p.grad.data.clamp_(-.1,.1)
                 # if weight_decay != 0:
                 #     d_p.add_(weight_decay, p.data)
 
