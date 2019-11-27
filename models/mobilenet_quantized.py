@@ -2,10 +2,13 @@ import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _single, _pair, _triple
 import math
+import tensorflow as tf
 import torch.nn.functional as F
 from torch.nn.modules.utils import _pair
 import torchvision.transforms as transforms
-from .modules.quantize import quantize, quantize_grad, QConv2d, QLinear, RangeBN
+from quantize import QConv2d, QLinear
+
+# from .modules.quantize import quantize, quantize_grad, QConv2d, QLinear, RangeBN
 __all__ = ['mobilenet_quantized']
 
 NUM_BITS = 8
@@ -13,6 +16,7 @@ NUM_BITS_WEIGHT = 8
 NUM_BITS_GRAD = 8
 BIPRECISION = True
 
+FLAGS = tf.app.flags.FLAGS
 
 def nearby_int(n):
     return int(round(n))
@@ -33,32 +37,48 @@ def init_model(model):
 class DepthwiseSeparableFusedConv2d(nn.Module):
 
     def __init__(self, in_channels, out_channels, kernel_size,
-                 stride=1, padding=0):
+                 stride=1, padding=0, activation=None):
         super(DepthwiseSeparableFusedConv2d, self).__init__()
-        self.components = nn.Sequential(
-            QConv2d(in_channels, in_channels, kernel_size,
-                    stride=stride, padding=padding, groups=in_channels, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION),
-            RangeBN(in_channels, num_bits=NUM_BITS,
-                    num_bits_grad=NUM_BITS_GRAD),
-            nn.ReLU(),
 
-            QConv2d(in_channels, out_channels, 1, bias=False, num_bits=NUM_BITS,
+        self.conv1 = QConv2d(in_channels, in_channels, kernel_size,
+                    stride=stride, padding=padding, groups=in_channels, num_bits=NUM_BITS, num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION),
+
+        self.bn1 = nn.BatchNorm2d(in_channels)
+
+        if activation is None:
+            self.activation = nn.ReLU()
+        else:
+            self.activation = activation
+
+        self.conv2 = QConv2d(in_channels, out_channels, 1, bias=False, num_bits=NUM_BITS,
                     num_bits_weight=NUM_BITS_WEIGHT, num_bits_grad=NUM_BITS_GRAD, biprecision=BIPRECISION),
-            RangeBN(out_channels, num_bits=NUM_BITS,
+        self.bn2 = nn.BatchNorm2d(out_channels, num_bits=NUM_BITS,
                     num_bits_grad=NUM_BITS_GRAD),
-            nn.ReLU()
-        )
 
     def forward(self, x):
-        return self.components(x)
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.conv1(out)
+        out = self.bn2(out)
+        out = self.conv1(out)
+
+        return out
 
 
 class MobileNet(nn.Module):
 
-    def __init__(self, width=1., shallow=False, num_classes=1000):
+    def __init__(self, width=1., shallow=False, num_classes=1000, activation=None):
         super(MobileNet, self).__init__()
         num_classes = num_classes or 1000
         width = width or 1.
+
+        if FLAGS.activation is None:
+            self.activation = nn.ReLU()
+
+        elif FLAGS.activation=='tanh':
+            self.activation = activation
+
         layers = [
             QConv2d(3, nearby_int(width * 32),
                     kernel_size=3, stride=2, padding=1, bias=False, num_bits=NUM_BITS,

@@ -7,7 +7,7 @@ import tensorflow as tf
 import math
 
 FLAGS = tf.app.flags.FLAGS
-
+USING_RELU= FLAGS.activation=='relu'
 def _mean(p, dim):
     """Computes the mean over all dimensions except dim"""
     if dim is None:
@@ -67,6 +67,7 @@ class UniformQuantize(InplaceFunction):
             scale = max(scale, 1e-8)
 
             if FLAGS.enforce_zero:
+                #TODO: Maybe delete this since this case is never used???
                 initial_zero_point = qmin - min_value / scale
                 zero_point = 0.
                 # make zero exactly represented
@@ -317,14 +318,14 @@ class QConv2d(nn.Conv2d):
 
         if self.is_quantized:
             if self.quant_inp:
-                # if self.num_bits_act <=2:
-                #         qinput =  quantize(input, num_bits=self.num_bits_act,
-                #                        min_value=0,
-                #                        max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
-                # elif self.num_bits_act < 32:
-                #     qinput = self.quantize_input(input)
-                if self.num_bits_act < 32:
+                if self.num_bits_act<=4 and USING_RELU:
+                        qinput =  quantize(input, num_bits=self.num_bits_act,
+                                       min_value=0,
+                                       max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+                elif self.num_bits_act < 32:
                     qinput = self.quantize_input(input)
+                # if self.num_bits_act < 32:
+                #     qinput = self.quantize_input(input)
                 else:
                     qinput = input
             else:
@@ -412,14 +413,14 @@ class QLinear(nn.Linear):
 
         if self.is_quantized:
 
-            # if self.num_bits_act<=2:
-            #     qinput = quantize(input, num_bits=self.num_bits_act,
-            #                       min_value=0,
-            #                       max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
-            # elif self.num_bits_act < 32:
-            #     qinput = self.quantize_input(input)
-            if self.num_bits_act < 32:
+            if self.num_bits_act<=4 and USING_RELU:
+                qinput = quantize(input, num_bits=self.num_bits_act,
+                                  min_value=0,
+                                  max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+            elif self.num_bits_act < 32:
                 qinput = self.quantize_input(input)
+            # if self.num_bits_act < 32:
+            #     qinput = self.quantize_input(input)
             else:
                 qinput = input
 

@@ -48,6 +48,15 @@ def pad_random_crop(input_size, scale_size=None, normalize=__imagenet_stats):
         transforms.Normalize(**normalize),
     ])
 
+def pad_random_crop_cifar100(input_size, scale_size=None, normalize=__imagenet_stats):
+    padding = int((scale_size - input_size) / 2)
+    return transforms.Compose([
+        transforms.RandomCrop(input_size, padding=padding),
+        transforms.RandomHorizontalFlip(),
+        transforms.RandomRotation(15),
+        transforms.ToTensor(),
+        transforms.Normalize(**normalize),
+    ])
 
 def inception_preproccess(input_size, normalize=__imagenet_stats):
     return transforms.Compose([
@@ -82,7 +91,7 @@ def get_transform(name='imagenet', input_size=None,
         else:
             return scale_crop(input_size=input_size,
                               scale_size=scale_size, normalize=normalize)
-    elif 'cifar' in name:
+    elif name=='cifar10':
         input_size = input_size or 32
         if augment:
             scale_size = scale_size or 40
@@ -92,6 +101,30 @@ def get_transform(name='imagenet', input_size=None,
             scale_size = scale_size or 32
             return scale_crop(input_size=input_size,
                               scale_size=scale_size, normalize=normalize)
+    elif name=='cifar100':
+        input_size = input_size or 32
+
+        CIFAR100_TRAIN_MEAN = (0.5070751592371323, 0.48654887331495095, 0.4409178433670343)
+        CIFAR100_TRAIN_STD = (0.2673342858792401, 0.2564384629170883, 0.27615047132568404)
+        if augment:
+            scale_size = scale_size or 40
+
+            return pad_random_crop_cifar100(input_size, scale_size=scale_size,
+                                   normalize=normalize)
+            # return transforms.Compose([
+            #     # transforms.ToPILImage(),
+            #     transforms.RandomCrop(32, padding=4),
+            #     transforms.RandomHorizontalFlip(),
+            #     # transforms.RandomRotation(15),
+            #     transforms.ToTensor(),
+            #     transforms.Normalize(CIFAR100_TRAIN_MEAN, CIFAR100_TRAIN_STD)
+            # ])
+        else:
+            scale_size = scale_size or 32
+            return scale_crop(input_size=input_size,
+                              scale_size=scale_size, normalize=normalize)
+
+
     elif name == 'mnist':
         if augment:
             return transforms.Compose([

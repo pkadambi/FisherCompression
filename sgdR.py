@@ -86,8 +86,8 @@ class SGDR(Optimizer):
             for p in group['params']:
                 if p.grad is None:
                     continue
-                # d_p = p.grad.data
-                d_p = p.grad.data.clamp_(-.1,.1)
+                d_p = p.grad.data
+                # d_p = p.grad.data.clamp_(-.1,.1)
                 if weight_decay != 0:
                     d_p.add_(weight_decay, p.data)
 

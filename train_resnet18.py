@@ -15,6 +15,7 @@ import numpy as np
 import os
 import pdb
 import scipy.stats as stats
+
 '''
 
 n epochs = 300
@@ -22,15 +23,17 @@ cosine decay rate
 weight decay
 
 '''
+#MUST KEEP THIS AS THE FIRST FLAG
+tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
+
 tf.app.flags.DEFINE_string('noise_scale',None,'`inv_fisher` or `fisher`')
 
 tf.app.flags.DEFINE_string('activation', None,'`tanh` or `relu`')
-
-tf.app.flags.DEFINE_string( 'dataset', 'cifar10', 'either mnist or fashionmnist')
+tf.app.flags.DEFINE_string('lr_decay_type', 'cosine', '`step` or `cosine`, defaults to cosine')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
 tf.app.flags.DEFINE_integer('n_epochs', 300, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
-tf.app.flags.DEFINE_float('weight_decay', 2e-4, 'weight decay value')
+tf.app.flags.DEFINE_float('weight_decay', 5e-4, 'weight decay value')
 # tf.app.flags.DEFINE_float('weight_decay', 100, 'weight decay value')
 tf.app.flags.DEFINE_integer('inflate', None,'inflating factor for resnet (may need bigger factor if 1-b weights')
 
@@ -82,6 +85,7 @@ tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use laye
 NOTE: the following imports must be after flags declarations since these files query the flags 
 
 '''
+
 from sgdR import SGDR
 from adamR import AdamR
 from models.resnet_quantized import ResNet_cifar10
@@ -113,7 +117,14 @@ Config file save information
 fisher = FLAGS.regularization=='fisher'
 l2 = FLAGS.regularization=='l2'
 distillation = FLAGS.regularization=='distillation'
+distillation_fisher = FLAGS.regularization=='distillation_fisher'
 inv_fisher = FLAGS.regularization=='inv_fisher'
+
+if FLAGS.dataset=='cifar10':
+    NUM_CLASSES=10
+elif FLAGS.dataset=='cifar100':
+    NUM_CLASSES=100
+
 
 
 if FLAGS.regularization == 'fisher' or FLAGS.regularization=='l2' or FLAGS.regularization=='inf_fisher':
@@ -125,13 +136,12 @@ else:
 
 #Save path
 if not FLAGS.debug and FLAGS.savepath is None:
-    SAVEPATH = './SavedModels/Resnet18/%dba_%dbw' % (n_bits_act, n_bits_wt)
+    SAVEPATH = './SavedModels/%s/Resnet18/%dba_%dbw' % (FLAGS.dataset, n_bits_act, n_bits_wt)
     if FLAGS.regularization is not None:
         SAVEPATH += '/' + FLAGS.regularization
 
 elif not FLAGS.debug:
     SAVEPATH = FLAGS.savepath
-
 
 
 etaval = FLAGS.eta
@@ -141,7 +151,7 @@ cudnn.benchmark = True
 torch.cuda.set_device(0)
 
 batch_size = FLAGS.batch_size
-n_workers = 6
+n_workers = 4
 dataset = FLAGS.dataset
 n_epochs = FLAGS.n_epochs
 record_interval = FLAGS.record_interval
@@ -151,11 +161,12 @@ criterion = nn.CrossEntropyLoss()
 
 train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
-# exit()
+
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
                                            num_workers=n_workers, pin_memory=True)
 test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True,
                                           num_workers=n_workers, pin_memory=True)
+
 
 n_runs = FLAGS.n_runs
 test_accs=[]
@@ -183,6 +194,7 @@ for k in range(n_runs):
     dict_ind = list(flag_dict.keys()).index('dataset')
     keys = list(flag_dict.keys())
     values = list(flag_dict.values())
+
     for dict_ind_ in range(dict_ind, len(flag_dict)):
         config_file.write(keys[dict_ind_] + ':\t' + str(values[dict_ind_])+'\n')
         config_file.flush()
@@ -199,20 +211,21 @@ for k in range(n_runs):
 
     if n_bits_wt<=2:
         # model = ResNet_cifar10_lowp(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate)
-        model = ResNet_cifar10_lowp(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
+        model = ResNet_cifar10_lowp(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation,
+                                    num_classes=NUM_CLASSES)
     else:
-        model = ResNet_cifar10(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation)
-    # exit()
+        model = ResNet_cifar10(is_quantized=FLAGS.is_quantized, inflate=FLAGS.inflate, activation=activation,
+                               num_classes=NUM_CLASSES)
+
     model.cuda()
     # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
 
     if FLAGS.optimizer=='adam':
         optimizer = optim.SGD(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay=FLAGS.weight_decay)
-        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=1e-5)
 
     elif FLAGS.optimizer=='sgd':
         optimizer = optim.SGD(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
-        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=2e-4)
+        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
 
     elif FLAGS.optimizer=='sgdr':
         # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
@@ -224,6 +237,14 @@ for k in range(n_runs):
         optimizer = AdamR(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
         # CosineAnnealingLR()
+
+
+
+    #TODO: abstract into utils file
+    if FLAGS.lr_decay_type=='cosine':
+        lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
+    else:
+        lr_scheduler = None
     # print(model.conv1.quantize_input)
     # exit()
     logstr  = '\n**************************************\n'
@@ -246,19 +267,18 @@ for k in range(n_runs):
                 if 'conv' in name or 'fc' in name:
                     if hasattr(layer, 'weight'):
                         layer.set_min_max()
-        # exit()
+
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
         logstr+=msg
         config_file.write(msg)
-        # exit()
 
 
     if distillation:
         checkpoint = torch.load(FLAGS.fp_loadpath)
         print('Restoring teacher model from:\t' + FLAGS.fp_loadpath)
 
-        teacher_model = ResNet_cifar10(is_quantized=False)
+        teacher_model = ResNet_cifar10(is_quantized=False, num_classes=NUM_CLASSES)
         teacher_model.cuda()
         teacher_model.load_state_dict(checkpoint['model_state_dict'])
 
@@ -272,7 +292,6 @@ for k in range(n_runs):
         logstr += msg
         config_file.write(logstr)
 
-    # exit()
     print(logstr)
     if FLAGS.logging:
         logfile.write(logstr)
@@ -317,7 +336,8 @@ for k in range(n_runs):
 
             inputs = inputs.cuda()
             targets = targets.cuda()
-
+            # print(targets)
+            # exit()
             output = model(inputs)
             loss = criterion(output, targets)
 
@@ -412,7 +432,6 @@ for k in range(n_runs):
                 _, reg_val = optimizer.step(regularizer=FLAGS.regularization, return_reg_val=True)
 
             else:
-                optimizer.step()
                 reg_val=torch.tensor(0.)
 
             train_acc = accuracy(output, targets).item()
@@ -571,10 +590,15 @@ for k in range(n_runs):
         model.eval()
 
         #Report test error every n epochs
-        if epoch % 1 == 0:
+        if epoch % 2 == 0 or epoch==n_epochs-1:
             msg = '\n*** TESTING ***\n'
             test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
-            msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.5f]\n' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr'])
+
+            if NUM_CLASSES>10:
+                test_loss, test_acc_top5 = test_model(test_loader, model, criterion, printing=False, eta=etaval, topk=5)
+                msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc Top-1/Top-5 [%.3f | %.3f]| Ep Time [%.1f]  | LR [%.5f]\n' % (epoch, test_loss, test_acc, test_acc_top5, elapsed,  optimizer.param_groups[0]['lr'])
+            else:
+                msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.5f]\n' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr'])
             print(msg)
             logstr+=msg
 
@@ -627,7 +651,7 @@ for k in range(n_runs):
             logfile.flush()
 
         if FLAGS.lr_decay:
-            lr_scheduler.step(epoch)
+            update_lr(epoch, optimizer, lr_scheduler, decay_method=FLAGS.lr_decay_type)
 
     print('\n*** TESTING ***\n')
     test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)

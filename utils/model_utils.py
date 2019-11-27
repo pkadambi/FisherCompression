@@ -127,7 +127,29 @@ def adjust_optimizer(optimizer, epoch, config):
 
     return optimizer
 
-def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None):
+def update_lr(epoch, optimizer, scheduler=None, decay_method='cosine'):
+
+    if decay_method=='cosine':
+            scheduler.step()
+
+    elif decay_method=='step':
+
+        if epoch<60:
+            for g in optimizer.param_groups:
+                g['lr'] = 0.1
+
+        elif epoch<120:
+            for g in optimizer.param_groups:
+                g['lr'] = 0.02
+
+        elif epoch<160:
+            for g in optimizer.param_groups:
+                g['lr'] = 0.004
+        elif epoch < 200:
+            for g in optimizer.param_groups:
+                g['lr'] = 0.0008
+
+def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None, topk=1):
 
     #switch to eval mode
     if printing:
@@ -153,7 +175,7 @@ def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_m
         loss += criterion(output, target).item()
         # acc_ = accuracy(output, target)
 
-        n_correct += accuracy(output, target).item() * n_batch/100.
+        n_correct += accuracy(output, target, topk=(topk,)).item() * n_batch/100.
         n_test += n_batch
 
         if teacher_model is not None:
