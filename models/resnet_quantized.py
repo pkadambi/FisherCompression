@@ -202,12 +202,13 @@ class ResNet_cifar10(ResNet):
         n = int((depth - 2) / 6)
         self.conv1 = QConv2d(in_channels=3, out_channels=16*self.inflate, kernel_size=(3,3), stride=1, padding=1,
                              bias=False, is_quantized=self.is_quantized, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act,
-                             quant_input=False)
+                             quant_input=True)
 
         self.bn1 = nn.BatchNorm2d(16 * self.inflate)
 
-        if FLAGS.activation is None:
+        if FLAGS.activation is None or FLAGS.activation is 'relu':
             self.activation = nn.ReLU()
+            FLAGS.activation='relu'
             bn_pos='pre_res'
         elif FLAGS.activation=='tanh':
             self.activation = activation

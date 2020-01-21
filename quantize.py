@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import tensorflow as tf
 import math
+import pdb
 
 FLAGS = tf.app.flags.FLAGS
 USING_RELU= FLAGS.activation=='relu'
@@ -226,7 +227,7 @@ class QuantMeasure(nn.Module):
         self.num_bits = num_bits
 
     def forward(self, input):
-
+        # print(self.training)
         if self.training and FLAGS.regularization is None:
         # if self.training:
             # std = torch.std(input.detach().view(-1))
@@ -290,19 +291,22 @@ class QConv2d(nn.Conv2d):
         self.biprecision = biprecision
         self.noise = noise
 
-        if FLAGS.q_min is not None:
-            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
-            self.q_min = self.min_value
-        else:
-            self.min_value = self.weight.min()
+        with torch.no_grad():
             self.q_min = None
+            if FLAGS.q_min is not None:
+                # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
+                self.q_min = FLAGS.q_min
+            else:
+                self.register_buffer('running_min', self.weight.min())
 
-        if FLAGS.q_max is not None:
-            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
-            self.q_max = self.max_value
-        else:
-            self.max_value = self.weight.max()
+
             self.q_max = None
+            if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
+                self.q_max = FLAGS.q_max
+            else:
+                self.register_buffer('running_max', self.weight.min())
 
 
         # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
@@ -314,14 +318,35 @@ class QConv2d(nn.Conv2d):
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
 
+        # if self.weight.min_value is None:
+        #     self.weight.min_value = self.weight.min()
+        #     self.q_min = None
+        #
+        # if self.weight.max_value is None:
+        #     self.weight.max_value = self.weight.max()
+        #     self.q_max = None
+
         #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
 
         if self.is_quantized:
+
+            #TODO: incorporate the running min style here, see if it's better than straight min/max
+            if self.q_min is None and FLAGS.regularization is None:
+                self.running_min.add_(self.weight.min() - self.running_min)
+                self.running_min = self.weight.min()
+
+
+            if self.q_max is None and FLAGS.regularization is None:
+                # self.running_max.add_(self.weight.max() - self.running_min)
+                self.running_max = self.weight.max()
+
+
+
             if self.quant_inp:
-                if self.num_bits_act<=4 and USING_RELU:
-                        qinput =  quantize(input, num_bits=self.num_bits_act,
+                if self.num_bits_act<4 and USING_RELU:
+                    qinput =  quantize(input, num_bits=self.num_bits_act,
                                        min_value=0,
-                                       max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+                                       max_value=2.*float(self.running_max), noise=self.noise, eta=eta)
                 elif self.num_bits_act < 32:
                     qinput = self.quantize_input(input)
                 # if self.num_bits_act < 32:
@@ -331,28 +356,27 @@ class QConv2d(nn.Conv2d):
             else:
                 qinput = input
 
-            if self.q_min is None and FLAGS.regularization is None:
-                self.min_value = self.weight.min()
 
-            if self.q_max is None and FLAGS.regularization is None:
-                self.max_value = self.weight.max()
 
 
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
+            if FLAGS.regularization:
+                # pdb.set_trace()
+                self.weight.data = tensor_clamp(self.weight.data, self.running_min, self.running_max)
+
             self.qweight = quantize(self.weight, num_bits=self.num_bits_weight,
-                               min_value=float(self.min_value),
-                               max_value=float(self.max_value), noise=self.noise, eta=eta)
+                                    min_value=float(self.running_min),
+                                    max_value=float(self.running_max), noise=self.noise, eta=eta)
 
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
-
             else:
                 self.qbias = None
 
             if eta>0:
-                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.max_value, min_value=self.min_value)
+                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.running_min, min_value=self.running_max)
                 output = F.conv2d(qinput, self.qweight_n, self.qbias, self.stride,
                                   self.padding, self.dilation, self.groups)
             else:
@@ -368,10 +392,14 @@ class QConv2d(nn.Conv2d):
 
         return output
 
-
+    #TODO: remove this function since now using a buffer for the code (it's still here incase code breaks)
     def set_min_max(self):
-        self.min_value = self.weight.min()
-        self.max_value = self.weight.max()
+        with torch.no_grad():
+            self.weight.min_value = self.weight.min()
+            self.weight.max_value = self.weight.max()
+
+            self.weight.min_value = self.weight.min_value.cuda()
+            self.weight.max_value = self.weight.max_value.cuda()
 
 class QLinear(nn.Linear):
     """docstring for QConv2d."""
@@ -389,19 +417,25 @@ class QLinear(nn.Linear):
 
         self.noise = noise
 
-        if FLAGS.q_min is not None:
-            self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
-            self.q_min = self.min_value
-        else:
-            self.min_value = self.weight.min()
+        with torch.no_grad():
             self.q_min = None
+            if FLAGS.q_min is not None:
+                # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
+                self.q_min = FLAGS.q_min
+            else:
+                self.register_buffer('running_min', self.weight.min())
 
-        if FLAGS.q_max is not None:
-            self.max_value = torch.tensor(FLAGS.q_max, device='cuda')
-            self.q_max = self.max_value
-        else:
-            self.max_value = self.weight.max()
+
             self.q_max = None
+            if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
+                self.q_max = FLAGS.q_max
+            else:
+                self.register_buffer('running_max', self.weight.min())
+        # else:
+        #     self.weight.max_value = self.weight.max()
+        #     self.q_max = None
 
         # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
         #     self.max_value=1
@@ -413,10 +447,18 @@ class QLinear(nn.Linear):
 
         if self.is_quantized:
 
-            if self.num_bits_act<=4 and USING_RELU:
+            # if self.weight.min_value is None:
+            #     self.weight.min_value = self.weight.min()
+            #     self.q_min = None
+
+            # if self.weight.max_value is None:
+            #     self.weight.max_value = self.weight.max()
+            #     self.q_max = None
+
+            if self.num_bits_act<4 and USING_RELU:
                 qinput = quantize(input, num_bits=self.num_bits_act,
                                   min_value=0,
-                                  max_value=2.*float(self.max_value), noise=self.noise, eta=eta)
+                                  max_value=2.*float(self.running_max), noise=self.noise, eta=eta)
             elif self.num_bits_act < 32:
                 qinput = self.quantize_input(input)
             # if self.num_bits_act < 32:
@@ -424,19 +466,21 @@ class QLinear(nn.Linear):
             else:
                 qinput = input
 
-
+            #Code for learning min/max
             if self.q_min is None and FLAGS.regularization is None:
-                self.min_value = self.weight.min()
+                self.running_min = self.weight.min()
 
             if self.q_max is None and FLAGS.regularization is None:
-                self.max_value = self.weight.max()
+                self.running_max = self.weight.max()
 
-            # self.weight.data.clamp(self.min_value, self.max_value)
-            # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
+
+            if FLAGS.regularization:
+                # self.weight.data.tensor_clamp(self.min_value, self.max_value)
+                self.weight.data = tensor_clamp(self.weight.data, self.running_min, self.running_max)
 
             self.qweight = quantize(self.weight, num_bits=self.num_bits_weight,
-                               min_value=float(self.min_value),
-                               max_value=float(self.max_value), noise=self.noise, eta=eta)
+                               min_value=float(self.running_min),
+                               max_value=float(self.running_max), noise=self.noise, eta=eta)
 
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
@@ -447,15 +491,11 @@ class QLinear(nn.Linear):
                 self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
 
             if eta>0:
-                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.max_value, min_value=self.min_value)
+                self.qweight_n = noise_weight(input=self.qweight, eta=torch.tensor(eta), max_value=self.running_min, min_value=self.running_max)
                 output = F.linear(qinput, self.qweight_n, self.qbias)
             else:
 
                 output = F.linear(qinput, self.qweight, self.qbias)
-
-
-
-
 
         else:
 
@@ -463,9 +503,15 @@ class QLinear(nn.Linear):
 
         return output
 
-
+    #TODO: remove this function since now using a buffer for the code (it's still here incase code breaks)
     def set_min_max(self):
-        self.weight.max_value = self.weight.min()
-        self.weight.min_value = self.weight.min()
-        self.min_value = self.weight.min()
-        self.max_value = self.weight.max()
+        # self.weight.max_value = self.weight.min()
+        # self.weight.min_value = self.weight.min()
+
+        with torch.no_grad():
+
+            self.weight.min_value = self.weight.min()
+            self.weight.max_value = self.weight.max()
+
+            self.weight.min_value = self.weight.min_value.cuda()
+            self.weight.max_value = self.weight.max_value.cuda()

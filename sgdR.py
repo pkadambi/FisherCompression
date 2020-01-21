@@ -62,7 +62,7 @@ class SGDR(Optimizer):
         for group in self.param_groups:
             group.setdefault('nesterov', False)
 
-    def step(self, regularizer = None, closure=None, return_reg_val=False):
+    def step(self, regularizer = None, closure=None, return_reg_val=False, gamma = FLAGS.gamma):
         """Performs a single optimization step.
         Arguments:
             closure (callable, optional): A closure that reevaluates the model
@@ -120,7 +120,7 @@ class SGDR(Optimizer):
                     if regularizer=='l2':
                         p.data.add_(-gamma * group['lr'], p.pert)
 
-                    elif regularizer=='fisher':
+                    elif 'fisher' in regularizer:
                         # import pdb
                         # pdb.set_trace()
                         # reg_grad = p.pert * (exp_avg_sq/torch.max(exp_avg_sq))
