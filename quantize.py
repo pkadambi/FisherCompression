@@ -315,6 +315,8 @@ class QConv2d(nn.Conv2d):
         # if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
         #     self.min_value=-1
 
+        self.d_theta = None
+
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
 
@@ -330,13 +332,14 @@ class QConv2d(nn.Conv2d):
 
         if self.is_quantized:
 
-            #TODO: incorporate the running min style here, see if it's better than straight min/max
-            if self.q_min is None and FLAGS.regularization is None:
+            #TODO: incorporate the running min style here (w/momentum)
+            #  see if it's better than straight min/max
+            if self.q_min is None and FLAGS.regularization is None and not self.training:
                 self.running_min.add_(self.weight.min() - self.running_min)
                 self.running_min = self.weight.min()
 
 
-            if self.q_max is None and FLAGS.regularization is None:
+            if self.q_max is None and FLAGS.regularization is None and not self.training:
                 # self.running_max.add_(self.weight.max() - self.running_min)
                 self.running_max = self.weight.max()
 
@@ -370,6 +373,10 @@ class QConv2d(nn.Conv2d):
                                     min_value=float(self.running_min),
                                     max_value=float(self.running_max), noise=self.noise, eta=eta)
 
+            if FLAGS.loss_surf_eval_d_qtheta and self.d_theta is not None:
+                self.qweight = self.qweight + self.d_theta
+
+
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)
             else:
@@ -386,6 +393,8 @@ class QConv2d(nn.Conv2d):
 
             if FLAGS.q_min is not None:
                 self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
+
+
         else:
 
             output = F.conv2d(input, self.weight, self.bias, self.stride, self.padding, self.dilation, self.groups)
@@ -442,7 +451,7 @@ class QLinear(nn.Linear):
         #
         # if FLAGS.q_min is None and FLAGS.n_bits_wt<=2:
         #     self.min_value=-1
-
+        self.d_theta = None
     def forward(self, input, eta=0.):
 
         if self.is_quantized:
@@ -467,10 +476,10 @@ class QLinear(nn.Linear):
                 qinput = input
 
             #Code for learning min/max
-            if self.q_min is None and FLAGS.regularization is None:
+            if self.q_min is None and FLAGS.regularization is None and not self.training:
                 self.running_min = self.weight.min()
 
-            if self.q_max is None and FLAGS.regularization is None:
+            if self.q_max is None and FLAGS.regularization is None and not self.training:
                 self.running_max = self.weight.max()
 
 
@@ -481,6 +490,9 @@ class QLinear(nn.Linear):
             self.qweight = quantize(self.weight, num_bits=self.num_bits_weight,
                                min_value=float(self.running_min),
                                max_value=float(self.running_max), noise=self.noise, eta=eta)
+
+            if FLAGS.loss_surf_eval_d_qtheta and self.d_theta is not None:
+                self.qweight = self.qweight + self.d_theta
 
             if self.bias is not None:
                 self.qbias = quantize(self.bias, num_bits=self.num_bits_weight)

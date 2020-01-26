@@ -74,7 +74,7 @@ tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 
 #Distillation Params
-tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/cifar10/Resnet18/FP/Run0/resnet', 'path to FP model for loading for distillation')
+tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/cifar10/Resnet18/fp_buffer/Run3/resnet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
@@ -86,6 +86,9 @@ tf.app.flags.DEFINE_string('fisher_method', 'adam','which method to use when com
 tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use layerwise fisher')
 
 tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doesnt write anyhting, it just loads from `FLAGS.savepath` and evaluates test acc once')
+
+tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whether we are in loss surface generation mode')
+
 
 '''
 
