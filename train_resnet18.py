@@ -772,6 +772,15 @@ for k in range(n_runs):
     msg = '************* FINAL ACCURACY *************\n'
     msg += 'TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]\n' % (test_loss, test_acc)
     msg += '************* END *************\n'
+
+    model_path = os.path.join(SAVEPATH_run, 'resnet')
+    torch.save({
+        'epoch': epoch + 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss}, model_path)
+    print('SAVING TO: \t' + SAVEPATH_run)
+
     print(msg)
 
     if FLAGS.logging:
@@ -786,17 +795,11 @@ for k in range(n_runs):
     #                 print('Min Value AFTER TEST:\t' + str(layer.min_value))
     #                 print('layer.weight.min():\t' + str(layer.weight.min()))
     #                 break
-    model_path = os.path.join(SAVEPATH_run, 'resnet')
     config_file.write('\n FINAL Test Accuracy: %.3f' % test_acc)
     config_file.flush()
     config_file.close()
 
-    torch.save({
-        'epoch': epoch + 1,
-        'model_state_dict': model.state_dict(),
-        'optimizer_state_dict': optimizer.state_dict(),
-        'loss': loss}, model_path)
-    print('SAVING TO: \t' + SAVEPATH_run)
+
 
 
 results_str = '\n******************************\n'

@@ -10,7 +10,9 @@ import argparse
 import numpy as np
 from os.path import exists
 import seaborn as sns
+import tensorflow as tf
 
+FLAGS = tf.app.flags.FLAGS
 
 def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel=0.5, show=False):
     """Plot 2D contour map and 3D surface."""
@@ -38,6 +40,14 @@ def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel
     if (len(x) <= 1 or len(y) <= 1):
         print('The length of coordinates is not enough for plotting contours')
         return
+
+    # --------------------------------------------------------------------
+    # Save XYZ
+    # --------------------------------------------------------------------
+    load_dir = FLAGS.loadpath
+    np.savetxt(load_dir + 'X.txt', X, '%.6f', delimiter=',')
+    np.savetxt(load_dir + 'Y.txt', Y, '%.6f', delimiter=',')
+    np.savetxt(load_dir + 'Z.txt', Z, '%.6f', delimiter=',')
 
     # --------------------------------------------------------------------
     # Plot 2D contours

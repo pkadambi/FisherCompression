@@ -72,9 +72,13 @@ tf.app.flags.DEFINE_boolean('lr_decay', True, 'Whether or not to decay learning 
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
 # tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
-tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw_buffer/Run0/', 'directory to load model from')
+# tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw_buffer/Run0/', 'directory to load model from')
+# tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/distillation_teq1/Run0/', 'directory to load model from')
+# tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/distillation_teq2/Run0/', 'directory to load model from')
+# tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/distillation_teq3/Run0/', 'directory to load model from')
 # tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/distillation_buffer/Run0/', 'directory to load model from')
 # tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/fisher_buffer/Run1/', 'directory to load model from')
+tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/msqe_buffer/Run0/', 'directory to load model from')
 
 # tf.app.flags.DEFINE_string('savepath', './tmp', 'directory to save model to')
 # tf.app.flags.DEFINE_string('loadpath', './SavedModels/cifar10/Resnet18/4ba_4bw/distillation', 'directory to load model from')
@@ -444,6 +448,10 @@ if __name__ == '__main__':
     #--------------------------------------------------------------------------
     # Plot figures
     #--------------------------------------------------------------------------
+
+
+    # print(surf_file)
+    # exit()
     if FLAGS.plot and rank == 0:
         if FLAGS.y and FLAGS.proj_file:
             plot_2D.plot_contour_trajectory(surf_file, dir_file, FLAGS.proj_file, 'train_loss', FLAGS.show)
