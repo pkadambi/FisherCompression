@@ -11,19 +11,20 @@ Y = importdata('Y.txt');
 %TODO: add FP here, add MSQE here, possibly different quantization methods
 %as well
 
-labels = {'Fisher', 'Distil T=1', 'Distil T=2', 'Distil T=3', 'Distil T=4', 'STE'};
-data = {fisher_vals, dist_teq1, dist_teq2, dist_teq3, dist_teq4, ste_vals};
-accuracies = [93.31, 93.39, 93.78, 94.05, 94.1, 93.15];
+labels = { 'STE', 'Fisher', 'Distil T=1', 'Distil T=2', 'Distil T=3', 'Distil T=4',};
+data = {ste_vals, fisher_vals, dist_teq1, dist_teq2, dist_teq3, dist_teq4};
+accuracies = [93.15, 93.31, 93.39, 93.78, 94.05, 94.1];
 hessians = cell(size(data));
 %% Step 2: Evaluate metric of minimum for each point (fit 2nd order poly curve, get determiniant of hessian of the curve)
 % contourf(X, Y, fisher_vals)
 THRESHOLD = 3;
 n_runs = size(data);
-
+n_runs=n_runs(2);
 syms g(a,b)
 syms a, b
 dets= []
-for ii = 1:n_runs(2)
+
+for ii = 1:n_runs
     Z = data{ii};
     Z = Z(:);
     f = fit([X(:), Y(:)], Z, 'poly22', 'Exclude', Z>THRESHOLD );
@@ -32,14 +33,14 @@ for ii = 1:n_runs(2)
     % loss is less than 3
     Z(Z>THRESHOLD )=THRESHOLD+1e-8;
     
-    hessians{ii} = vpa(hessian(g, [a,b]),7);
+    hessians{ii} = vpa(hessian(g, [a,b]),3);
     disp(labels(ii))
     detval = double(det(hessians{ii}));
     dets = [dets detval];
     disp(det(hessians{ii}))
-%     figure()
-%     plot(f, [X(:), Y(:)],  Z )
-%     title(strcat(labels{ii}, strcat(', Truncating loss less than 3, Hess Det: ', num2str(double(det(hessians{ii}))))))
+    subplot(n_runs, 1, ii)
+    plot(f, [X(:), Y(:)],  Z )
+    title(strcat(labels{ii}, strcat(sprintf(', Clipping Loss to Max Value of 3, \nHess Det: '), num2str(double(det(hessians{ii}))))))
 
 end
 
@@ -54,7 +55,8 @@ text(dets-.02, accuracies-.02, labels)
 %     text(dets(ii)-.02, accuracies(ii)-.02, labels{ii}, 'FontSize', 8)
 % 
 % end
-xlabel('Determinant of Hessian 2D Fit Curve')
+xlabel(sprintf('Determinant of Hessian of 2D Fit Curve\n (Larger values imply greater curvature)'))
 ylabel('Accuracy')
+title(sprintf('Accuracy vs Determinant of Hessian of \n 2D Parabolic Curve Fit to Loss Landscape'))
 
 

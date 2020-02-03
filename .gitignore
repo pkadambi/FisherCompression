@@ -10,4 +10,5 @@ junk/
 SavedModels
 NoisyModel
 tmp
-
+*_gitignore*
+*_~*
