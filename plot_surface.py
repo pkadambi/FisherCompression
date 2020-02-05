@@ -143,7 +143,7 @@ tf.app.flags.DEFINE_float('vmin', default=0.1, help='Miminum value to map')
 tf.app.flags.DEFINE_float('vlevel', default=0.5, help='plot contours every vlevel')
 tf.app.flags.DEFINE_boolean('show', default=True, help='show plotted figures')
 tf.app.flags.DEFINE_boolean('log', default=False, help='use log scale for loss values')
-tf.app.flags.DEFINE_boolean('plot', default=True, help='plot figures after computation')
+tf.app.flags.DEFINE_boolean('plot', default=False, help='plot figures after computation')
 
 tf.app.flags.DEFINE_float('xmin', default=0., help='min x value in grid')
 tf.app.flags.DEFINE_float('xmax', default=0., help='max x value in grid')
@@ -158,6 +158,11 @@ tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=True, help='wheth
 
 tf.app.flags.DEFINE_string('loss_surf_type', default='test', help='whether to create test or train loss surface')
 
+tf.app.flags.DEFINE_string('loss_landscapes_directory', default=None, help='if specified, include subfolder /models/ with the models to calc loss fn for, also specify n_directions')
+# './SavedModels/cifar10/Resnet18/4ba_4bw/loss_landscape_results'
+tf.app.flags.DEFINE_integer('n_directions', default=5, help='number of directions to evaluate')
+
+
 '''
 
 NOTE: the following imports must be after flags declarations since these files query the flags 
@@ -170,8 +175,8 @@ import plot_2D
 import plot_1D
 import model_loader
 import scheduler
-FLAGS = tf.app.flags.FLAGS
 
+FLAGS = tf.app.flags.FLAGS
 
 #Torch gpu stuff
 cudnn.benchmark = True
@@ -186,8 +191,6 @@ record_interval = FLAGS.record_interval
 FLAGS.model_file = FLAGS.loadpath+FLAGS.model
 
 criterion = nn.CrossEntropyLoss()
-
-
 
 
 def name_surface_file(args, dir_file):
@@ -331,6 +334,25 @@ def crunch(surf_file, net, w, state, d, dataloader, loss_key, acc_key, comm, ran
 
     f.close()
 
+
+def save_xyz_surf_info(surf_file, results_dir, results_file, surf_name='train_loss'):
+    f = h5py.File(surf_file, 'r')
+    x = np.array(f['xcoordinates'][:])
+    y = np.array(f['ycoordinates'][:])
+
+    X, Y = np.meshgrid(x, y)
+
+    if surf_name in f.keys():
+        Z = np.array(f[surf_name][:])
+    elif surf_name == 'train_err' or surf_name == 'test_err' :
+        Z = 100 - np.array(f[surf_name][:])
+    else:
+        print ('%s is not found in %s' % (surf_name, surf_file))
+
+    np.savetxt(results_dir + 'X.txt', X, '%.6f', delimiter=',')
+    np.savetxt(results_dir + 'Y.txt', Y, '%.6f', delimiter=',')
+    np.savetxt(results_file         , Z, '%.6f', delimiter=',')
+
 ###############################################################
 #                          MAIN
 ###############################################################
@@ -367,63 +389,9 @@ if __name__ == '__main__':
     except:
         raise Exception('Improper format for x- or y-coordinates. Try something like -1:1:51')
 
-    #--------------------------------------------------------------------------
-    # Load models and extract parameters
-    #--------------------------------------------------------------------------
-
-    net = model_loader.load()
-
-    #TODO: fix the two lines below
-
-    w = net_plotter.get_weights(net) # initial parameters
-    wts = net_plotter.get_weights(net) # initial parameters
-
-    # [print(_.size()) for _ in wts]
-    # pdb.set_trace()
-
-
-    state = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
-    # if FLAGS.ngpu > 1:
-    #     # data parallel with multiple GPUs on a single node
-    #     net = nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
-
-    #--------------------------------------------------------------------------
-    # Setup the direction file and the surface file
-    #--------------------------------------------------------------------------
-    dir_file = net_plotter.name_direction_file(FLAGS) # name the direction file
-    # pdb.set_trace()
-    if rank == 0:
-        net_plotter.setup_direction(FLAGS, dir_file, net)
-
-    surf_file = name_surface_file(FLAGS, dir_file)
-    if rank == 0:
-        setup_surface_file(FLAGS, surf_file, dir_file)
-
-    # wait until master has setup the direction file and surface file
-    time.sleep(.05)
-
-    # load directions
-    d = net_plotter.load_directions(dir_file)
-    print(len(d[0]))
-    # exit()
-    # calculate the consine similarity of the two directions
-    if len(d) == 2 and rank == 0:
-        similarity = proj.cal_angle(proj.nplist_to_tensor(d[0]), proj.nplist_to_tensor(d[1]))
-        print('cosine similarity between x-axis and y-axis: %f' % similarity)
-
-    #--------------------------------------------------------------------------
-    # Setup dataloader
-    #--------------------------------------------------------------------------
-    # download CIFAR10 if it does not exit
-    # if rank == 0 and FLAGS.dataset == 'cifar10':
-    #     torchvision.datasets.CIFAR10(root=FLAGS.dataset + '/data', train=True, download=True)
-
-    # mpi.barrier(comm)
-    time.sleep(.05)
     # TODO: add distillation choice
     criterion = nn.CrossEntropyLoss()
 
-    #TODO: replace with correct data loading protocol
     train_data = get_dataset(name=dataset, split='train', transform=get_transform(name=dataset, augment=True))
     test_data = get_dataset(name=dataset, split='test', transform=get_transform(name=dataset, augment=False))
 
@@ -432,30 +400,221 @@ if __name__ == '__main__':
     testloader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=True,
                                               num_workers=n_workers, pin_memory=True)
 
-    test_loss, test_acc = test_model(testloader, net, criterion, printing=False)
-    msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
-    print(msg)
+    if FLAGS.loss_landscapes_directory is None:
+        '''
+        If the direction directory is none, just load the model from FLAGS.loadpath and continue with that
+        '''
+        #--------------------------------------------------------------------------
+        # Load models and extract parameters
+        #--------------------------------------------------------------------------
 
-    # evaluation.test_model(net, criterion , testloader, printing=True)
+        net = model_loader.load(FLAGS.loadpath)
 
-    # exit()
-    #--------------------------------------------------------------------------
-    # Start the computation
-    #--------------------------------------------------------------------------
-    crunch(surf_file, net, w, state, d, trainloader, 'train_loss', 'train_acc', comm, rank, FLAGS)
-    # crunch(surf_file, net, w, s, d, testloader, 'test_loss', 'test_acc', comm, rank, FLAGS)
-    print('here')
-    #--------------------------------------------------------------------------
-    # Plot figures
-    #--------------------------------------------------------------------------
+        #TODO: fix the two lines below
+
+        w = net_plotter.get_weights(net) # initial parameters
+        # wts = net_plotter.get_weights(net) # initial parameters
+
+        # [print(_.size()) for _ in wts]
+        # pdb.set_trace()
 
 
-    # print(surf_file)
-    # exit()
-    if FLAGS.plot and rank == 0:
-        if FLAGS.y and FLAGS.proj_file:
-            plot_2D.plot_contour_trajectory(surf_file, dir_file, FLAGS.proj_file, 'train_loss', FLAGS.show)
-        elif FLAGS.y:
-            plot_2D.plot_2d_contour(surf_file, 'train_loss', FLAGS.vmin, FLAGS.vmax, FLAGS.vlevel, FLAGS.show)
+        state = copy.deepcopy(net.state_dict()) # deepcopy since state_dict are references
+        # if FLAGS.ngpu > 1:
+        #     # data parallel with multiple GPUs on a single node
+        #     net = nn.DataParallel(net, device_ids=range(torch.cuda.device_count()))
+
+        #--------------------------------------------------------------------------
+        # Setup the direction file and the surface file
+        #--------------------------------------------------------------------------
+        dir_file = net_plotter.name_direction_file(FLAGS) # name the direction file
+        # pdb.set_trace()
+        if rank == 0:
+            net_plotter.setup_direction(FLAGS, dir_file, net)
+
+        surf_file = name_surface_file(FLAGS, dir_file)
+        if rank == 0:
+            setup_surface_file(FLAGS, surf_file, dir_file)
+
+        # wait until master has setup the direction file and surface file
+        time.sleep(.05)
+
+        # load directions
+        d = net_plotter.load_directions(dir_file)
+        print(len(d[0]))
+        # exit()
+        # calculate the consine similarity of the two directions
+        if len(d) == 2 and rank == 0:
+            similarity = proj.cal_angle(proj.nplist_to_tensor(d[0]), proj.nplist_to_tensor(d[1]))
+            print('cosine similarity between x-axis and y-axis: %f' % similarity)
+
+        #--------------------------------------------------------------------------
+        # Setup dataloader
+        #--------------------------------------------------------------------------
+        # download CIFAR10 if it does not exit
+        # if rank == 0 and FLAGS.dataset == 'cifar10':
+        #     torchvision.datasets.CIFAR10(root=FLAGS.dataset + '/data', train=True, download=True)
+
+
+        test_loss, test_acc = test_model(testloader, net, criterion, printing=False)
+        msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
+        # print(msg)
+        # print(dir_file)
+        # print(surf_file)
+
+        # evaluation.test_model(net, criterion , testloader, printing=True)
+
+        # exit()
+        #--------------------------------------------------------------------------
+        # Start the computation
+        #--------------------------------------------------------------------------
+
+        if FLAGS.loss_surf_type=='train':
+            crunch(surf_file, net, w, state, d, trainloader, 'train_loss', 'train_acc', comm, rank, FLAGS)
+        elif FLAGS.loss_surf_type == 'train':
+            crunch(surf_file, net, w, state, d, testloader, 'test_loss', 'test_acc', comm, rank, FLAGS)
         else:
-            plot_1D.plot_1d_loss_err(surf_file, FLAGS.xmin, FLAGS.xmax, FLAGS.loss_max, FLAGS.log, FLAGS.show)
+            exit('ERROR: Incorrect loss surf type specified, must be `train` or `test`')
+
+        #--------------------------------------------------------------------------
+        # Plot figures
+        #--------------------------------------------------------------------------
+
+
+        # print(surf_file)
+        # exit()
+        if FLAGS.plot and rank == 0:
+            if FLAGS.y and FLAGS.proj_file:
+                plot_2D.plot_contour_trajectory(surf_file, dir_file, FLAGS.proj_file, 'train_loss', FLAGS.show)
+            elif FLAGS.y:
+                plot_2D.plot_2d_contour(surf_file, 'train_loss', FLAGS.vmin, FLAGS.vmax, FLAGS.vlevel, FLAGS.show)
+            else:
+                plot_1D.plot_1d_loss_err(surf_file, FLAGS.xmin, FLAGS.xmax, FLAGS.loss_max, FLAGS.log, FLAGS.show)
+
+    else:
+        working_dir = FLAGS.loss_landscapes_directory
+        grid_config_str = 'grid_x_%s_y%s' % (FLAGS.x, FLAGS.y) + '_%s' % FLAGS.loss_surf_type
+        directions_dir = os.path.join(working_dir, 'directions')
+        models_dir = os.path.join(working_dir, 'models')
+        results_folder = os.path.join(working_dir, 'results/'+grid_config_str)
+
+        if FLAGS.loss_surf_type == 'test':
+            surf_name = 'test_loss'
+        elif FLAGS.loss_surf_type == 'train':
+            surf_name = 'train_loss'
+        else:
+            exit('ERROR: loss surf type must be either `test` or `train`')
+
+        #FUNCT 1: Setup directories
+        for i in range(FLAGS.n_directions):
+
+            #TODO: Step 1: check if direction file/directory exists, if it doesnt create it (This is common across all models for this run)
+            #basis directory is independent of the grid density
+            direction_folder = os.path.join(directions_dir, '%d/' % i)
+            # exit()
+
+            #name the direction file (based on ynum, etc)
+
+            #TODO: add argument to function for supplied dir_file_directory
+            dir_file = net_plotter.name_direction_file(FLAGS, direction_directory=direction_folder)  # name the direction file
+
+
+            if rank == 0:
+                if os.path.exists(dir_file):
+                    net_plotter.setup_direction(FLAGS, dir_file)
+                else:
+                    os.makedirs(direction_folder, exist_ok=True)
+                    #set up network here
+                    ste_model_dir = os.path.join(models_dir, 'ste/resnet')
+                    net = model_loader.load(loadpath = ste_model_dir)
+
+                    net_plotter.setup_direction(FLAGS, dir_file, net)
+
+            # print(dir_file)
+            # continue
+
+            results_dir = os.path.join(results_folder, '%d/' % i)
+
+
+
+            d = net_plotter.load_directions(dir_file) #load direction file
+
+            model_directories = os.listdir(models_dir)  # get all models in subdirectories
+
+            for model_subfolder in model_directories:
+                # print(model_subfolder)
+                #TODO: correctly setup flags before instantiating network (ie regularization type, etc.)
+                model_loadpath = os.path.join(models_dir, model_subfolder + '/%s' % FLAGS.model)
+
+                if 'l2' in model_subfolder or 'msqe' in model_subfolder:
+                    FLAGS.regularization = 'l2'
+                    results_file = os.path.join(results_dir, 'msqe.txt')
+                elif 'distillation' in model_subfolder:
+                    FLAGS.regularization = 'distillation'
+                    results_file = os.path.join(results_dir, model_subfolder+'.txt')
+                elif 'fisher' in model_subfolder:
+                    FLAGS.regularization = 'fisher'
+                    results_file = os.path.join(results_dir, 'fisher.txt')
+
+                elif 'inv_fisher' in model_subfolder:
+                    FLAGS.regularization = 'inv_fisher'
+                    results_file = os.path.join(results_dir, 'inv_fisher.txt')
+                elif 'ste' in model_subfolder:
+                    FLAGS.regularization = None
+                    results_file = os.path.join(results_dir, 'STE.txt')
+
+                # print(model_loadpath)
+
+                #HACKY AF CODE: reimport model loader to apply the FLAGS changes
+                import model_loader #TODO: is this import statement really needed?
+                net = model_loader.load(model_loadpath)
+                test_loss, test_acc = test_model(testloader, net, criterion, printing=False)
+                print('\nRestored Model Accuracy: \t %.3f' % (test_acc))
+
+                w = net_plotter.get_weights(net)  # initial parameters
+
+                #TODO: (next after getting this script workinbg) also set temperature flag so that we can get the distillation loss landscape
+
+                surf_dir = os.path.join(models_dir, os.path.join(model_subfolder, grid_config_str))
+                surf_dir = os.path.join(surf_dir, '%d/' % i)
+
+                #TODO: split crunching into it's own function/loop, this will help code maintainability going forward (wont be as nightmare like train_resnet18.py)
+                # TODO: Step 2: check if surf file exists, if not create it (this should go in the model directory? or results dir)
+                if not os.path.exists(surf_dir):
+                    os.makedirs(surf_dir, exist_ok=True)
+
+                surf_dir = net_plotter.name_direction_file(FLAGS, direction_directory=surf_dir)  # name the direction file
+                surf_file = name_surface_file(FLAGS, surf_dir)
+                setup_surface_file(FLAGS, surf_file, dir_file)
+                # print(results_file)
+                # continue
+
+
+                # TODO: step 3a: check if results directory exists, if not, create it (this dirname should be based on the xnum/ynum/xmin/ymin/etc.)
+
+                state = copy.deepcopy(net.state_dict())  # deepcopy since state_dict are references
+
+                if 'test' in surf_name:
+                    crunch(surf_file, net, w, state, d, testloader, surf_name, 'test_acc', comm, rank, FLAGS)
+
+                if 'train' in surf_name:
+                    crunch(surf_file, net, w, state, d, trainloader, 'train_loss', 'train_acc', comm, rank, FLAGS)
+
+
+                os.makedirs(results_dir, exist_ok=True)
+
+
+                # TODO: Step 3b: if results file not exist, crunch the numbers
+
+                # TODO: Step 3c: save the Z.txt in the results directory
+                save_xyz_surf_info(surf_file, results_dir, results_file, surf_name=surf_name)
+
+            FLAGS.show=False
+
+            if FLAGS.plot and rank == 0:
+                if FLAGS.y and FLAGS.proj_file:
+                    plot_2D.plot_contour_trajectory(surf_file, dir_file, FLAGS.proj_file, 'train_loss', FLAGS.show)
+                elif FLAGS.y:
+                    plot_2D.plot_2d_contour(surf_file, 'train_loss', FLAGS.vmin, FLAGS.vmax, FLAGS.vlevel, FLAGS.show)
+                else:
+                    plot_1D.plot_1d_loss_err(surf_file, FLAGS.xmin, FLAGS.xmax, FLAGS.loss_max, FLAGS.log, FLAGS.show)

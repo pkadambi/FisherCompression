@@ -44,10 +44,10 @@ def plot_2d_contour(surf_file, surf_name='train_loss', vmin=0.1, vmax=10, vlevel
     # --------------------------------------------------------------------
     # Save XYZ
     # --------------------------------------------------------------------
-    load_dir = FLAGS.loadpath
-    np.savetxt(load_dir + 'X.txt', X, '%.6f', delimiter=',')
-    np.savetxt(load_dir + 'Y.txt', Y, '%.6f', delimiter=',')
-    np.savetxt(load_dir + 'Z.txt', Z, '%.6f', delimiter=',')
+    # load_dir = FLAGS.loadpath
+    # np.savetxt(load_dir + 'X.txt', X, '%.6f', delimiter=',')
+    # np.savetxt(load_dir + 'Y.txt', Y, '%.6f', delimiter=',')
+    # np.savetxt(load_dir + 'Z.txt', Z, '%.6f', delimiter=',')
 
     # --------------------------------------------------------------------
     # Plot 2D contours

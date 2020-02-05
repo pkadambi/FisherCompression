@@ -8,7 +8,7 @@ import tensorflow as tf
 FLAGS = tf.app.flags.FLAGS
 
 
-def load():
+def load(loadpath):
 
     #step1 - instantiate model
     if FLAGS.dataset is 'cifar10':
@@ -27,8 +27,7 @@ def load():
 
     #step2 - restore model
 
-    if FLAGS.loadpath is not None:
-        loadpath = os.path.join(FLAGS.loadpath, 'resnet')
+    if loadpath is not None:
         print('Restoring model to train from:\t' + loadpath)
         checkpoint = torch.load(loadpath)
         model.load_state_dict(checkpoint['model_state_dict'])

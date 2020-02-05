@@ -334,13 +334,13 @@ class QConv2d(nn.Conv2d):
 
             #TODO: incorporate the running min style here (w/momentum)
             #  see if it's better than straight min/max
-            if self.q_min is None and FLAGS.regularization is None and not self.training:
-                self.running_min.add_(self.weight.min() - self.running_min)
+            if self.q_min is None and FLAGS.regularization is None and self.training:
+                # self.running_min.add_(self.weight.min() - self.running_min)
                 self.running_min = self.weight.min()
 
 
-            if self.q_max is None and FLAGS.regularization is None and not self.training:
-                # self.running_max.add_(self.weight.max() - self.running_min)
+            if self.q_max is None and FLAGS.regularization is None and self.training:
+                # self.running_max.add_(self.weight.max() - self.running_max)
                 self.running_max = self.weight.max()
 
 
@@ -476,10 +476,10 @@ class QLinear(nn.Linear):
                 qinput = input
 
             #Code for learning min/max
-            if self.q_min is None and FLAGS.regularization is None and not self.training:
+            if self.q_min is None and FLAGS.regularization is None and self.training:
                 self.running_min = self.weight.min()
 
-            if self.q_max is None and FLAGS.regularization is None and not self.training:
+            if self.q_max is None and FLAGS.regularization is None and self.training:
                 self.running_max = self.weight.max()
 
 

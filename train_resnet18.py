@@ -85,7 +85,7 @@ tf.app.flags.DEFINE_boolean('constant_fisher', True,'whether to keep fisher/inv_
 tf.app.flags.DEFINE_string('fisher_method', 'adam','which method to use when computing fisher')
 tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use layerwise fisher')
 
-tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doesnt write anyhting, it just loads from `FLAGS.savepath` and evaluates test acc once')
+tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doesnt write anyhting, it just loads from `FLAGS.loadpath` and evaluates test acc once')
 
 tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whether we are in loss surface generation mode')
 
@@ -335,11 +335,11 @@ for k in range(n_runs):
         msg += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
         logstr += msg
 
-        if FLAGS.eval:
-            print(msg)
-            exit('Finished evaluating model')
+    if FLAGS.eval:
+        print(msg)
+        exit('Finished evaluating model')
 
-        config_file.write(logstr)
+    config_file.write(logstr)
     # Accs: [93.72]
 
     print(logstr)

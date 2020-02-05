@@ -265,7 +265,7 @@ def create_random_direction(net, dir_type='weights', ignore='biasbn', norm='filt
     return direction
 
 
-def setup_direction(args, dir_file, net):
+def setup_direction(args, dir_file, net=None):
     """
         Setup the h5 file to store the directions.
         - xdirection, ydirection: The pertubation direction added to the mdoel.
@@ -314,7 +314,7 @@ def setup_direction(args, dir_file, net):
     print ("direction file created: %s" % dir_file)
 
 
-def name_direction_file(args):
+def name_direction_file(args, direction_directory = None):
     """ Name the direction file that stores the random directions. """
 
     if args.dir_file:
@@ -324,7 +324,6 @@ def name_direction_file(args):
     dir_file = ""
 
     file1, file2, file3 = args.model_file, args.model_file2, args.model_file3
-
     # name for xdirection
     if file2:
         # 1D linear interpolation between two models
@@ -338,6 +337,10 @@ def name_direction_file(args):
             prefix = prefix[0:prefix.rfind('/')]
             dir_file += file1[:file1.rfind('/')] + '_' + file1[file1.rfind('/')+1:] + '_' + \
                        file2[len(prefix)+1: file2.rfind('/')] + '_' + file2[file2.rfind('/')+1:]
+    elif direction_directory is not None:
+
+        dir_file += direction_directory + args.model
+
     else:
         dir_file += file1
 
