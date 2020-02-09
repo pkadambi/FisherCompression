@@ -15,6 +15,7 @@ labels = { 'STE', 'Fisher', 'Distil T=1', 'Distil T=2', 'Distil T=3', 'Distil T=
 data = {ste_vals, fisher_vals, dist_teq1, dist_teq2, dist_teq3, dist_teq4};
 accuracies = [93.15, 93.31, 93.39, 93.78, 94.05, 94.1];
 hessians = cell(size(data));
+
 %% Step 2: Evaluate metric of minimum for each point (fit 2nd order poly curve, get determiniant of hessian of the curve)
 % contourf(X, Y, fisher_vals)
 THRESHOLD = 3;
@@ -25,6 +26,7 @@ syms a, b
 dets= []
 
 for ii = 1:n_runs
+    
     Z = data{ii};
     Z = Z(:);
     f = fit([X(:), Y(:)], Z, 'poly22', 'Exclude', Z>THRESHOLD );

@@ -12,3 +12,6 @@ NoisyModel
 tmp
 *_gitignore*
 *_~*
+parabolic_interpolation/results/
+
+
