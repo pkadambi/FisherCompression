@@ -59,10 +59,6 @@ class BinaryLenet(nn.Module):
         return x
 
 
-
-
-
-
 def lenet_binary(**kwargs):
     return BinaryLenet()
 

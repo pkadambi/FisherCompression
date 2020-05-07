@@ -13,6 +13,8 @@ import h5_util
 from sklearn.decomposition import PCA
 import tensorflow as tf
 FLAGS = tf.app.flags.FLAGS
+
+
 def tensorlist_to_tensor(weights):
     """ Concatnate a list of tensors into one tensor.
 
@@ -192,7 +194,7 @@ def setup_PCA_directions(args, model_files, w, s):
         folder_name += '_ignore=' + args.ignore
     folder_name += '_save_epoch=' + str(args.save_epoch)
     os.system('mkdir ' + folder_name)
-    dir_name = folder_name + '/directions.h5'
+    dir_name = folder_name + '/direction.h5'
 
     # skip if the direction file exists
     if os.path.exists(dir_name):

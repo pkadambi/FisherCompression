@@ -109,11 +109,14 @@ tf.app.flags.DEFINE_string('model', default='resnet', help='model name')
 tf.app.flags.DEFINE_string('dir_file', default='',help='specify the name of direction file, or the path to an eisting direction file')
 tf.app.flags.DEFINE_string('dir_type', default='weights', help='direction type: weights | states (including BN\'s running_mean/var)')
 
-tf.app.flags.DEFINE_string('x', default='-1.:1.:50', help='A string with format xmin:x_max:xnum')
-tf.app.flags.DEFINE_string('y', default='-1.:1.:50', help='A string with format ymin:ymax:ynum')
+# tf.app.flags.DEFINE_string('x', default='-1.:1.:50', help='A string with format xmin:x_max:xnum')
+# tf.app.flags.DEFINE_string('y', default='-1.:1.:50', help='A string with format ymin:ymax:ynum')
 
 # tf.app.flags.DEFINE_string('x', default='-0.7:0.7:35', help='A string with format xmin:x_max:xnum')
 # tf.app.flags.DEFINE_string('y', default='-0.7:0.7:35', help='A string with format ymin:ymax:ynum')
+
+tf.app.flags.DEFINE_string('x', default='-0.75:0.75:30', help='A string with format xmin:x_max:xnum')
+tf.app.flags.DEFINE_string('y', default='-0.75:0.75:30', help='A string with format ymin:ymax:ynum')
 
 # tf.app.flags.DEFINE_string('x', default='-.1:.1:10', help='A string with format xmin:x_max:xnum')
 # tf.app.flags.DEFINE_string('y', default='-.1:.1:10', help='A string with format ymin:ymax:ynum')
@@ -125,7 +128,6 @@ tf.app.flags.DEFINE_string('yignore', default='biasbn', help='ignore bias and BN
 tf.app.flags.DEFINE_boolean('same_dir', default=False, help='use the same random direction for both x-axis and y-axis')
 tf.app.flags.DEFINE_integer('idx', default=0, help='the index for the repeatness experiment')
 tf.app.flags.DEFINE_string('surf_file', default='', help='customize the name of surface file, could be an existing file.')
-
 
 tf.app.flags.DEFINE_string('model_file', default='', help='path to the trained model file')
 tf.app.flags.DEFINE_string('model_file2', default='', help='path to the trained model file') #here just so that the ported code doesnt break
@@ -157,6 +159,7 @@ tf.app.flags.DEFINE_float('ynum', default=0., help='Number of y in grid')
 tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=True, help='whether we are in loss surface generation mode')
 
 tf.app.flags.DEFINE_string('loss_surf_type', default='test', help='whether to create test or train loss surface')
+# tf.app.flags.DEFINE_string('loss_surf_type', default='train', help='whether to create test or train loss surface')
 
 tf.app.flags.DEFINE_string('loss_landscapes_directory', default=None, help='if specified, include subfolder /models/ with the models to calc loss fn for, also specify n_directions')
 # './SavedModels/cifar10/Resnet18/4ba_4bw/loss_landscape_results'

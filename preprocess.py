@@ -129,8 +129,9 @@ def get_transform(name='imagenet', input_size=None,
         if augment:
             return transforms.Compose([
                 transforms.RandomHorizontalFlip(),
+                # transforms.RandomCrop(input_size, pad_if_needed=True),
                 transforms.ToTensor(),
-                # transforms.Normalize()
+                # transforms.Normalize(),
             ])
         else:
             return transforms.Compose([

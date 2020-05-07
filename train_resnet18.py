@@ -201,15 +201,13 @@ for k in range(n_runs):
     if FLAGS.logging and not FLAGS.eval:
         os.makedirs(SAVEPATH_run, exist_ok=True)
 
-        logpath = SAVEPATH_run + '/logfile.txt'
+        logpath = SAVEPATH_run + './logfile.txt'
         logfile = open(logpath, 'w+')
         config_file = open(config_path, 'w+')
 
         for dict_ind_ in range(dict_ind, len(flag_dict)):
             config_file.write(keys[dict_ind_] + ':\t' + str(values[dict_ind_])+'\n')
             config_file.flush()
-
-
 
 
     if FLAGS.activation == 'tanh':
@@ -246,7 +244,6 @@ for k in range(n_runs):
         optimizer = AdamR(model.parameters(), lr=FLAGS.lr, weight_decay=FLAGS.weight_decay)
         lr_scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=n_epochs, eta_min=FLAGS.lr_end)
         # CosineAnnealingLR()
-
 
 
     #TODO: abstract into utils file
@@ -372,7 +369,6 @@ for k in range(n_runs):
 
 
     for epoch in range(n_epochs):
-
 
         if epoch>150 and FLAGS.n_bits_wt<=2:
             for group in optimizer.param_groups:
