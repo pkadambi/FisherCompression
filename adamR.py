@@ -54,7 +54,7 @@ class AdamR(Optimizer):
     def __setstate__(self, state):
         super(AdamR, self).__setstate__(state)
 
-    def step(self, regularizer = None, closure=None, return_reg_val=False):
+    def step(self, regularizer = None, closure=None, return_reg_val=False, gamma=gamma):
         """Performs a single optimization step.
 
         Arguments:

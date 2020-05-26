@@ -8,7 +8,7 @@ import math
 import pdb
 
 FLAGS = tf.app.flags.FLAGS
-USING_RELU= FLAGS.activation=='relu'
+USING_RELU = FLAGS.activation=='relu'
 def _mean(p, dim):
     """Computes the mean over all dimensions except dim"""
     if dim is None:
@@ -32,75 +32,30 @@ class UniformQuantize(InplaceFunction):
     @staticmethod
     # def forward(cls, ctx, input, num_bits=8, min_value=None, max_value=None, eta = .01,
     #             noise=None, num_chunks=None, out_half=False):
-    def forward(ctx, input, num_bits=8, min_value=None, max_value=None, eta=.01,
-                    noise=None, num_chunks=None, out_half=False):
+    def forward(ctx, input, num_bits=8, min_value=None, max_value=None, num_chunks=None, is_quantized=False):
 
-        num_chunks = input.shape[0] if num_chunks is None else num_chunks
-        if min_value is None or max_value is None:
-            B = input.shape[0]
-            y = input.view(B // num_chunks, -1)
-
-        if min_value is None:
-            min_value = y.min(-1)[0].mean(-1)  # C
-            # min_value = float(input.view(input.size(0), -1).min(-1)[0].mean())
-
-        if max_value is None:
-            # max_value = float(input.view(input.size(0), -1).max(-1)[0].mean())
-            max_value = y.max(-1)[0].mean(-1)  # C
-
-##
-        ctx.noise = noise
-
-        if quantize:
+        if is_quantized:
 
             ctx.num_bits = num_bits
             ctx.min_value = min_value
             ctx.max_value = max_value
-            # print(input)
-            # exit()
-            q_weight = input.clone()
+
+            # q_weight = input.clone()
+            q_weight = input
 
             qmin = 0.
             qmax = 2. ** num_bits - 1.
             #import pdb; pdb.set_trace()
-            scale = (max_value - min_value) / (qmax - qmin)
+            scale = (ctx.max_value - ctx.min_value) / (qmax - qmin)
 
-            scale = max(scale, 1e-8)
+            scale = max(scale, 1e-8) #avoids qunatizing all bits to one level
 
-            if FLAGS.enforce_zero:
-                #TODO: Maybe delete this since this case is never used???
-                initial_zero_point = qmin - min_value / scale
-                zero_point = 0.
-                # make zero exactly represented
-                #TODO: Figure out how on earth this works
-                if initial_zero_point < qmin:
-                    zero_point = qmin
-                elif initial_zero_point > qmax:
-                    zero_point = qmax
-                else:
-                    zero_point = initial_zero_point
-
-                zero_point = int(zero_point)
-
-                # output.div_(scale).add_(zero_point)
-                q_weight = (q_weight / scale) + zero_point
-
-            else:
-                # output.add_(-min_value).div_(scale).add_(qmin)
-                q_weight = (q_weight - min_value) / scale + qmin
+            q_weight = (q_weight - ctx.min_value) / scale + qmin
 
             q_weight.clamp_(qmin, qmax).round_()  # quantize
-            ctx.min_value = min_value
-            ctx.max_value = max_value
 
-            #TODO: figure out how this works
-            if FLAGS.enforce_zero:
-                q_weight.add_(-zero_point).mul_(scale)  # dequantize
-            else:
-                q_weight.add_(-qmin).mul_(scale).add_(min_value)  # dequantize
 
-            if out_half and num_bits <= 16:
-                q_weight = q_weight.half()
+            q_weight.add_(-qmin).mul_(scale).add_(ctx.min_value)  # dequantize
 
         else:
             # If layer is not quantized, we still need to compute
@@ -117,27 +72,9 @@ class UniformQuantize(InplaceFunction):
 
     @staticmethod
     def backward(ctx, grad_output):
-        # straight-through estimator
 
-        # if FLAGS.regularization=='l2':
-        #     pert = ctx.saved_tensors[0]
-        #     grad_input = grad_output + FLAGS.gamma * FLAGS.diag_load_const * 2 * pert
-        # elif FLAGS.regularization=='fisher':
-        #     pert = ctx.saved_tensors[0]
-        #
-        #     # grad_input = grad_output + torch.clamp(FLAGS.gamma *
-        #     #                                        2 * (grad_output * grad_output *
-        #     #                                        pert + FLAGS.diag_load_const * pert),
-        #     #                                        -.1, .1)
-        #
-        #     grad_input = grad_output + FLAGS.gamma * 2 * (grad_output * grad_output * pert + FLAGS.diag_load_const * pert)
-        #
-        #
-        # else:
-        #     grad_input = grad_output
         grad_input = grad_output
 
-        # return grad_input
         return grad_input, None, None, None, None, None, None, None, None
 
 
@@ -146,15 +83,12 @@ class NoiseInjection(InplaceFunction):
     '''
         Perform noise injection with straight-through estimator
     '''
-
     @staticmethod
     def forward(ctx, input, eta, max_value, min_value):
 
-        # TODO: change this to it's own layer
+        # output = input.clone()
+        output = input
 
-        output = input.clone()
-
-        # if ctx.noise == 'NVM':
         noise_std = eta * (max_value - min_value)
 
         noise = output.new(input.shape).normal_(mean=0, std=noise_std)
@@ -173,27 +107,11 @@ class NoiseInjection(InplaceFunction):
         grad_input = grad_output.clone()
         return grad_input, None, None, None
 
-def conv2d_biprec(input, weight, bias=None, stride=1, padding=0, dilation=1, groups=1):
-    out1 = F.conv2d(input.detach(), weight, bias,
-                    stride, padding, dilation, groups)
-    out2 = F.conv2d(input, weight.detach(), bias.detach() if bias is not None else None,
-                    stride, padding, dilation, groups)
-
-    return out1 + out2 - out1.detach()
-
-
-def linear_biprec(input, weight, bias=None, num_bits_grad=None):
-    out1 = F.linear(input.detach(), weight, bias)
-    out2 = F.linear(input, weight.detach(), bias.detach()
-                    if bias is not None else None)
-
-    return out1 + out2 - out1.detach()
-
 def noise_weight(input, eta, min_value, max_value):
     return NoiseInjection().apply(input, eta, min_value, max_value)
 
 def quantize(x, num_bits=8, min_value=None, max_value=None, num_chunks=None, noise=None, eta=.0, out_half=False):
-    return UniformQuantize().apply(x, num_bits, min_value, max_value, eta, noise, num_chunks, out_half)
+    return UniformQuantize().apply(x, num_bits, min_value, max_value, eta, num_chunks, out_half)
     # quant = UniformQuantize()
     # return quant(x, num_bits, min_value, max_value, num_chunks, stochastic, inplace)
 
@@ -209,7 +127,7 @@ def tensor_clamp(input_tensor, min_value_tensor, max_value_tensor):
 
 
 
-class QuantMeasure(nn.Module):
+class Quantize(nn.Module):
     """
 
     This class quantizes an input to a layer by keeping a running mean of the min and max value
@@ -220,54 +138,30 @@ class QuantMeasure(nn.Module):
 
     #TODO: This slows down training by a lot, figure out why
     def __init__(self, num_bits=8, momentum=0.1):
-        super(QuantMeasure, self).__init__()
+        super(Quantize, self).__init__()
         self.register_buffer('running_min', torch.zeros(1))
         self.register_buffer('running_max', torch.zeros(1))
         self.momentum = momentum
-        self.num_bits = num_bits
 
-    def forward(self, input):
-        # print(self.training)
-        if self.training and FLAGS.regularization is None:
-        # if self.training:
-            # std = torch.std(input.detach().view(-1))
-            # mean = torch.mean(input.detach().view(-1))
+    def forward(self, input, num_bits, quantize):
 
-            # min_value = mean - 3 * std
-            # max_value = mean + 3 * std
-
-            # n_elems = torch.numel(input)
-            #
-            # ind_min = int(n_elems * .001)
-            # ind_max = n_elems - ind_min
-
-            # if self.num_bits<=2:
-
-                # min_value = -.5
-                # max_value = .5
-
-            # else:
-
-                # std = torch.std(input.detach().view(-1))
-                # mean = torch.mean(input.detach()
-                # .view(-1))
-
-                # min_value = mean - 3 * std
-                # max_value = mean + 3 * std
+        if FLAGS.regularization is None:
 
             min_value = input.detach().view(input.size(0), -1).min(-1)[0].mean()
             max_value = input.detach().view(input.size(0), -1).max(-1)[0].mean()
 
-                # min_value = torch.kthvalue(input.view(-1), ind_min)[0]
-                # max_value = torch.kthvalue(input.view(-1), ind_max)[0]
-
             self.running_min.mul_(self.momentum).add_(min_value * (1 - self.momentum))
             self.running_max.mul_(self.momentum).add_(max_value * (1 - self.momentum))
+
         else:
             min_value = self.running_min
             max_value = self.running_max
 
-        return quantize(input, self.num_bits, min_value=float(min_value), max_value=float(max_value), num_chunks=16)
+        if quantize:
+            #TODO: binary case
+            return quantize(input, num_bits, min_value=float(min_value), max_value=float(max_value), num_chunks=16)
+        else:
+            return input
 
 
 class QConv2d(nn.Conv2d):
@@ -286,7 +180,6 @@ class QConv2d(nn.Conv2d):
         self.quant_inp = quant_input
 
         # if self.num_bits_act<32 and is_quantized and self.quant_inp:
-        self.quantize_input = QuantMeasure(self.num_bits_act)
 
         self.biprecision = biprecision
         self.noise = noise
@@ -295,16 +188,16 @@ class QConv2d(nn.Conv2d):
             self.q_min = None
             if FLAGS.q_min is not None:
                 # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
                 self.q_min = FLAGS.q_min
-                self.register_buffer('running_min', torch.tensor(FLAGS.q_min))
             else:
                 self.register_buffer('running_min', self.weight.min())
 
 
             self.q_max = None
             if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
                 self.q_max = FLAGS.q_max
-                self.register_buffer('running_max', torch.tensor(FLAGS.q_max))
             else:
                 self.register_buffer('running_max', self.weight.min())
 
@@ -319,16 +212,6 @@ class QConv2d(nn.Conv2d):
 
     #TODO: add inputs eta, noise model (eta kept in formward
     def forward(self, input, eta=0.):
-
-        # if self.weight.min_value is None:
-        #     self.weight.min_value = self.weight.min()
-        #     self.q_min = None
-        #
-        # if self.weight.max_value is None:
-        #     self.weight.max_value = self.weight.max()
-        #     self.q_max = None
-
-        #Eta is kept as an input to the forward() function since eta_train=\=eta_inf sometimes
 
         if self.is_quantized:
 
@@ -358,9 +241,6 @@ class QConv2d(nn.Conv2d):
                     qinput = input
             else:
                 qinput = input
-
-
-
 
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
@@ -430,16 +310,16 @@ class QLinear(nn.Linear):
             self.q_min = None
             if FLAGS.q_min is not None:
                 # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
                 self.q_min = FLAGS.q_min
-                self.register_buffer('running_min', torch.tensor(FLAGS.q_min))
             else:
                 self.register_buffer('running_min', self.weight.min())
 
 
             self.q_max = None
             if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
                 self.q_max = FLAGS.q_max
-                self.register_buffer('running_max', torch.tensor(FLAGS.q_max))
             else:
                 self.register_buffer('running_max', self.weight.min())
         # else:

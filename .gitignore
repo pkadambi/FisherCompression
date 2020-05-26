@@ -13,5 +13,8 @@ tmp
 *_gitignore*
 *_~*
 parabolic_interpolation/results/
-
+SLS_param.tar.gz
+SLS_param/
+fashion_model_fp
+quantize.py.backup
 

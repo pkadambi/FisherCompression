@@ -17,7 +17,6 @@ import pdb
 import scipy.stats as stats
 
 
-
 '''
 
 n epochs = 300
@@ -30,12 +29,12 @@ weight decay
 tf.app.flags.DEFINE_string( 'dataset', 'fashionmnist', 'either mnist or fashionmnist')
 tf.app.flags.DEFINE_string('noise_scale',None,'`inv_fisher` or `fisher`')
 
-tf.app.flags.DEFINE_string('activation', None,'`tanh` or `relu`')
+tf.app.flags.DEFINE_string('activation', 'relu','`tanh` or `relu`')
 tf.app.flags.DEFINE_string('lr_decay_type', 'cosine', '`step` or `cosine`, defaults to cosine')
 tf.app.flags.DEFINE_integer( 'batch_size', 128, 'batch size')
-tf.app.flags.DEFINE_integer('n_epochs', 20, 'num epochs' )
+tf.app.flags.DEFINE_integer('n_epochs', 30, 'num epochs' )
 tf.app.flags.DEFINE_integer('record_interval', 100, 'how many iterations between printing to console')
-tf.app.flags.DEFINE_float('weight_decay', 2e-4, 'weight decay value')
+tf.app.flags.DEFINE_float('weight_decay', 0., 'weight decay value')
 
 tf.app.flags.DEFINE_integer('inflate', None,'inflating factor for resnet (may need bigger factor if 1-b weights')
 tf.app.flags.DEFINE_float('lr', .001, 'learning rate')
@@ -50,17 +49,18 @@ tf.app.flags.DEFINE_string('noise_model', None, 'type of noise to add None, NVM,
 tf.app.flags.DEFINE_float('q_min', None, 'minimum quant value')
 tf.app.flags.DEFINE_float('q_max', None, 'maximum quant value')
 tf.app.flags.DEFINE_integer('n_runs', 5, 'number of times to train network')
+tf.app.flags.DEFINE_integer('n_classes', 10, 'n classes')
 
 tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
 tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`')
 # tf.app.flags.DEFINE_string('regularization', 'distillation', 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`')
 
-tf.app.flags.DEFINE_float('gamma', 0.01, 'gamma value')
+tf.app.flags.DEFINE_float('gamma', 0.0001, 'gamma value')
 tf.app.flags.DEFINE_float('diag_load_const', 0.005, 'diagonal loading constant')
 
 # tf.app.flags.DEFINE_string('optimizer', 'sgd', 'optimizer to use `sgd` or `adam`')
-tf.app.flags.DEFINE_string('optimizer', 'adamr', 'optimizer to use `sgd` or `adam`')
+tf.app.flags.DEFINE_string('optimizer', 'adam', 'optimizer to use `sgd` or `adam`')
 tf.app.flags.DEFINE_boolean('lr_decay', True, 'Whether or not to decay learning rate')
 
 tf.app.flags.DEFINE_string('savepath', None, 'directory to save model to')
@@ -84,6 +84,7 @@ tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use laye
 tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doesnt write anyhting, it just loads from `FLAGS.loadpath` and evaluates test acc once')
 tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whether we are in loss surface generation mode')
 
+tf.app.flags.DEFINE_string('regularizer', '', help='can have `SLS` OR `ULS`, `Fisher` OR `MSQE`, `distillation`')
 
 '''
 
@@ -97,6 +98,7 @@ from models.resnet_quantized import ResNet_cifar10
 from models.resnet_lowp import ResNet_cifar10_lowp
 from models.resnet_binary import ResNet_cifar10_binary
 import models
+from cot_loss import *
 
 
 FLAGS = tf.app.flags.FLAGS
@@ -109,15 +111,96 @@ n_workers = 4
 dataset = FLAGS.dataset
 n_epochs = FLAGS.n_epochs
 record_interval = FLAGS.record_interval
+regularizer = FLAGS.regularizer
 
 #Torch gpu stuff
 cudnn.benchmark = True
 torch.cuda.set_device(0)
 
+
+def regularizer_multiplier(curr_epoch, n_epochs):
+
+    midpt = int(n_epochs/2)
+
+    return 1/(1+np.exp(-0.5*(curr_epoch - midpt)))
+
+#TODO: add dataset label smoothing here
+
+
+#1. Weizhi's method
+
+#2. Distillation ( we already have that)
+
+#3. Not label smoothing but add complement entropy loss
+
+#4. Naive label smoothing - via the method in the medium article
+
+
+DISTIL = False
+SLS = False
+MSQE = False
+FISHER = False
+COT=False
+
+if 'distillation' in regularizer.lower():
+    DISTIL = True
+
+if 'SLS' in regularizer.lower():
+    SLS = True
+
+if 'MSQE' in regularizer.lower():
+    MSQE = True
+
+if 'fisher' in regularizer.lower():
+    FISHER = True
+
+if 'complement' in regularizer.lower() or 'cot' in regularizer.lower():
+    COT = True
+
+class SoftCrossEntropy(nn.Module):
+    def __init__(self):
+        super(SoftCrossEntropy, self).__init__()
+
+
+    def forward(self, inputs, target):
+        """
+        :param inputs: predictions
+        :param target: target labels
+        :return: loss
+        """
+        log_likelihood = - F.log_softmax(inputs, dim=1)
+        sample_num, class_num = target.shape
+        loss = torch.sum(torch.mul(log_likelihood, target))/sample_num
+
+        return loss
+
+
 criterion = nn.CrossEntropyLoss()
+criterion_full_labels = SoftCrossEntropy()
+cot_loss = ComplementEntropy()
+
+# torch.scatter()
 
 train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
+
+# train_data = torch.nn.functional.one_hot(targets)
+
+
+if not os.path.exists('./fashionmnist_clusters.txt'):
+    npdata = np.vstack([tr[0].numpy().reshape(1,-1) for tr in train_data])
+    labels = np.array([tr[1] for tr in train_data])
+
+    from sklearn.decomposition import PCA
+    from sklearn.cluster import KMeans
+
+    pca = PCA(n_components=256)
+    pca.fit(npdata)
+    reduc_data = pca.transform(npdata)
+
+    kmeans = KMeans(n_clusters=64, random_state=0)
+    kmeans.fit(reduc_data)
+    np.savetxt('./fashionmnist_clusters.txt', kmeans.labels_, fmt='%d')
 
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
                                            num_workers=n_workers, pin_memory=True)
@@ -127,52 +210,103 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuf
 #instantiate and train the model
 model = models.Lenet5(is_quantized=False)
 model.cuda()
+
 if FLAGS.optimizer == 'adam':
     optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr)
+
+    if COT:
+        cot_optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr)
+
 elif FLAGS.optimizer == 'adamr':
     # optimizer = optim.SGDR(model.parameters(), momentum=.9, lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
     optimizer = AdamR(model.parameters(), lr=FLAGS.lr)
-
-
+    if COT:
+        cot_optimizer = AdamR(model.parameters(), lr=FLAGS.lr)
 i=0
-
+cot_ = []
 for epoch in range(n_epochs):
+    model.train()
     for iter, (inputs, targets) in enumerate(train_loader):
 
         inputs = inputs.cuda()
         targets = targets.cuda()
 
         output = model(inputs)
-        loss = criterion(output, targets)
+        # targets_oh = torch.nn.functional.one_hot(targets)
+        cot = cot_loss(output, targets)
+
+        mult = regularizer_multiplier(epoch, n_epochs+10)
+        loss =  criterion(output, targets) # + mult*  cot #+  cot_loss(output, targets)
 
         optimizer.zero_grad()
-        loss.backward()
+
+        loss.backward(retain_graph=True)
+        optimizer.step()
+
+        lossval = loss.item()
+
+        # for group in optimizer.param_groups:
+        #     for p in group['params']:
+        #         if hasattr(p, 'pert'):
+        #             if FLAGS.fisher_method == 'adam':
+        #                 p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
+        #             elif FLAGS.fisher_method == 'g2':
+        #                 p.fisher = p.grad * p.grad * FLAGS.batch_size
+        #
+        #             p.inv_FIM = 1 / (p.fisher + 1e-7)
+        #             p.inv_FIM = p.inv_FIM * 1e-7
+        #
+        #
+        # perts = []
+        # if FLAGS.is_quantized:
+        #     for l, (name, layer) in enumerate(model.named_modules()):
+        #         if 'conv' in name or 'fc' in name:
+        #             with torch.no_grad():
+        #                 if hasattr(layer, 'qweight'):
+        #                     pertw = layer.weight - layer.qweight
+        #                     layer.weight.pert = pertw
+        #                     perts.append(pertw)
+
+        cot_.append(cot.item())
+
+        if COT:
+            optimizer.zero_grad()
+            outputs = model(inputs)
+            loss = 0. * cot_loss(output, targets)
+            cot_optimizer.zero_grad()
+            loss.backward()
+            cot_optimizer.step()
+            cot_lossval = loss.item()
+            cot_.append(cot_lossval)
 
         train_acc = accuracy(output, targets).item()
-        lossval = loss.item()
-        optimizer.step()
 
         if i % record_interval == 0 or i == 0:
             msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]|' % (i, lossval, train_acc)
-            print(msg)
+            if COT:
+                msg += '| COT Loss [%.3f]' % cot_lossval
 
+            print(msg)
         i+=1
+
     if epoch % 1 == 0 or epoch == n_epochs - 1:
         msg = '\n*** TESTING ***\n'
         test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
 
 
         msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| | LR [%.5f]\n' % (
-        epoch, test_loss, test_acc, optimizer.param_groups[0]['lr'])
-        print(msg)
+            epoch, test_loss, test_acc, optimizer.param_groups[0]['lr'])
+        print('Multiplier: '+ str(mult))
 
+        if COT:
+            msg += '| COT Loss [%.3f]' % cot_lossval
+        print(msg)
 print('\n*** TESTING ***\n')
 # test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
 # print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| LR [%.3f]' %
 #       (epoch, test_loss, test_acc, optimizer.param_groups[0]['lr']))
 
 test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
-
 
 msg = '************* FINAL ACCURACY *************\n'
 msg += 'TRAINING END | Test Loss [%.3f]| Test Acc [%.3f]\n' % (test_loss, test_acc)
@@ -185,6 +319,24 @@ msg = '************* FINAL ACCURACY *************\n'
 msg += 'TRAINING END | Test Loss Quantized [%.3f]| Test Acc Quantized [%.3f]\n' % (test_loss, test_acc)
 msg += '************* END *************\n'
 print(msg)
+
+
+
+import torch.nn.functional as F
+T=4
+clusters = np.readtxt('./fashionmnist_clusters.txt', fmt='%d')
+n_clusters =
+cluster_entropy_baseline =
+for i in range(60000):
+
+teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
+
+
+pdb.set_trace()
+# if COT:
+plt.plot(cot_)
+plt.grid()
+plt.show()
 #test the model
 
 

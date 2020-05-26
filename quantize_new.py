@@ -295,16 +295,16 @@ class QConv2d(nn.Conv2d):
             self.q_min = None
             if FLAGS.q_min is not None:
                 # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
                 self.q_min = FLAGS.q_min
-                self.register_buffer('running_min', torch.tensor(FLAGS.q_min))
             else:
                 self.register_buffer('running_min', self.weight.min())
 
 
             self.q_max = None
             if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
                 self.q_max = FLAGS.q_max
-                self.register_buffer('running_max', torch.tensor(FLAGS.q_max))
             else:
                 self.register_buffer('running_max', self.weight.min())
 
@@ -430,16 +430,16 @@ class QLinear(nn.Linear):
             self.q_min = None
             if FLAGS.q_min is not None:
                 # self.min_value = torch.tensor(FLAGS.q_min, device='cuda')
+                self.register_buffer('running_min', FLAGS.q_min)
                 self.q_min = FLAGS.q_min
-                self.register_buffer('running_min', torch.tensor(FLAGS.q_min))
             else:
                 self.register_buffer('running_min', self.weight.min())
 
 
             self.q_max = None
             if FLAGS.q_max is not None:
+                self.register_buffer('running_max', FLAGS.q_max)
                 self.q_max = FLAGS.q_max
-                self.register_buffer('running_max', torch.tensor(FLAGS.q_max))
             else:
                 self.register_buffer('running_max', self.weight.min())
         # else:

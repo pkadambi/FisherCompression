@@ -201,7 +201,7 @@ for k in range(n_runs):
     if FLAGS.logging and not FLAGS.eval:
         os.makedirs(SAVEPATH_run, exist_ok=True)
 
-        logpath = SAVEPATH_run + './logfile.txt'
+        logpath = SAVEPATH_run + '/logfile.txt'
         logfile = open(logpath, 'w+')
         config_file = open(config_path, 'w+')
 
