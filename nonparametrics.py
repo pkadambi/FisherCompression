@@ -21,7 +21,7 @@ def compute_delta_ijs(data, labels, n_classes):
     edgelist = np.transpose(np.nonzero(mst))
 
     for i in range(n_classes):
-        for j in range(i, n_classes):
+        for j in range(i+1, n_classes):
 
             dij=0
 
@@ -123,24 +123,27 @@ def dp_div(A, B, method='1nn'):
 
 
 def calculate_alpha_hat(alpha, beta, n_classes, clusterwise_ber, examples_per_cluster):
-
+    # calculate_alpha_hat(.1, .1, 10, bers, examples_per_cluster)
     w = [e/sum(examples_per_cluster) for e in examples_per_cluster]
     R = clusterwise_ber
     K = n_classes
 
+    C = len(clusterwise_ber) # capital C is the number of clusters
 
-    ahat_i = [alpha + (beta / 2) * sum(
-        [np.abs(R[c] * (K / (K - 1)) - 1) * w[c] - np.abs(R[i] * (K / (K - 1)) - 1) for c in range(K)])
-              for i in range(K)]
+
+
+    ahat_i = [alpha + (beta/2) * np.sum([np.abs(R[c] * (K/ (K - 1)) - 1) * w[c] for c in range(C)]) -
+              np.abs(R[i] * (K/(K -1)) - 1) for i in range(C)]
 
     return ahat_i
 
 def ber_from_delta_ij(delta_ij_matrix, n_classes):
-    d_ij = delta_ij_matrix
+    dij = delta_ij_matrix
     K = n_classes
 
-    lb = ((K - 1) / K) * (
-                1 - (1 - 2 * (K / (K - 1)) * np.sum([np.sum([d_ij[i, j] for j in range(i, K)]) for i in range(K)])))
+    lb = ((K - 1) / K) * np.sqrt(
+                1 - (1 - 2 *
+                (K / (K - 1)) * np.sum([np.sum([dij[i, j] for j in range(i+1, K)]) for i in range(K-1)])))
 
     return lb
 
@@ -173,7 +176,7 @@ def test_fashionmnist_clustering_and_ber():
 
     from sklearn.decomposition import PCA
     from sklearn.preprocessing import RobustScaler
-    dataset = 'fashionmnist'
+    dataset = 'cifar10'
 
     train_data = get_dataset(name=dataset, split='train', transform=get_transform(name=dataset, augment=True))
     test_data = get_dataset(name=dataset, split='test', transform=get_transform(name=dataset, augment=False))
@@ -188,7 +191,7 @@ def test_fashionmnist_clustering_and_ber():
     # data = transformer.transform(npdata)
 
     print('Started pca')
-    pca = PCA(n_components=128).fit(data)
+    pca = PCA(n_components=256).fit(data)
     data_reduc = pca.transform(data)
 
     print('Explained Variance: %.2f' % np.sum(pca.explained_variance_ratio_))
@@ -199,11 +202,14 @@ def test_fashionmnist_clustering_and_ber():
     gmm = GaussianMixture(n_components=64)
     gmm.fit(data_reduc)
     cluster_labels = gmm.predict(data_reduc)
-
+    # cluster_labels = np.loadtxt('./clifar10_clusters_pca256_gmm64.txt')
     data_clustered, labels_clustered = split_data_into_clusters(data_reduc, labels, cluster_memberships=cluster_labels )
 
     print('Computing Delta_ij')
     dijs=[compute_delta_ijs(data,labels, n_classes=10) for data, lables in zip(data_clustered, labels_clustered)]
+
+    import pickle as pkl
+    pkl.dump({'dijs': dijs}, open('./cifar10_pca256_gmm64_dij_matrix','wb'))
 
     print('Computing BER')
     bers = [ber_from_delta_ij(dij, n_classes=10) for dij in dijs]
@@ -213,6 +219,7 @@ def test_fashionmnist_clustering_and_ber():
     alpha_hat = calculate_alpha_hat(.2, .05, 10, bers, examples_per_cluster)
     print(alpha_hat)
     print()
+
 # dpdivvalue=dp_div(a,b,method='mst')
 def time_difference_tester():
     import time

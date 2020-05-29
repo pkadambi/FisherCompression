@@ -236,7 +236,7 @@ for epoch in range(n_epochs):
         cot = cot_loss(output, targets)
 
         mult = regularizer_multiplier(epoch, n_epochs+10)
-        loss =  criterion(output, targets) # + mult*  cot #+  cot_loss(output, targets)
+        loss =  criterion(output, targets) #+ 1. *  cot #+  cot_loss(output, targets)
 
         optimizer.zero_grad()
 
@@ -322,22 +322,22 @@ print(msg)
 
 
 
-import torch.nn.functional as F
-T=4
-clusters = np.readtxt('./fashionmnist_clusters.txt', fmt='%d')
-n_clusters =
-cluster_entropy_baseline =
-for i in range(60000):
-
-teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
-
-
-pdb.set_trace()
-# if COT:
-plt.plot(cot_)
-plt.grid()
-plt.show()
-#test the model
-
+# import torch.nn.functional as F
+# T=4
+# clusters = np.readtxt('./fashionmnist_clusters.txt', fmt='%d')
+# n_clusters =
+# cluster_entropy_baseline =
+# for i in range(60000):
+#
+# teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
+#
+#
+# pdb.set_trace()
+# # if COT:
+# plt.plot(cot_)
+# plt.grid()
+# plt.show()
+# #test the model
+#
 
 

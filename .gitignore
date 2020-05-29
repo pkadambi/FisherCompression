@@ -18,3 +18,6 @@ SLS_param/
 fashion_model_fp
 quantize.py.backup
 
+cifar10_gmm
+cifar10_gmm20
+cifar10_pca

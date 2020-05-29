@@ -1,3 +1,5 @@
+#TODO: merge this with utils.py from the lyme project and somehow decide how to split what you need from the lyme project
+#TODO: create an ML Utils package that has what you need
 import torch
 import torchvision
 import torch.nn as nn
@@ -33,6 +35,14 @@ def loss_fn_kd(student_logits, teacher_logits, T):
     # KD_loss = nn.KLDivLoss()(F.log_softmax(outputs/T, dim=1), F.softmax(teacher_outputs/T, dim=1)) * (alpha * T * T)
 
     return KD_loss
+
+def loss_fn_smooth_labels(model_logits, target_smooth_labels):
+
+    model_probs = F.log_softmax(model_logits)
+    smooth_label_loss = nn.KLDivLoss(reduction='batchmean')(model_probs, target_smooth_labels)
+
+    return smooth_label_loss
+
 
 def quantizer_levels_from_wts(model, n_levels):
     """
@@ -230,6 +240,22 @@ def adjust_optimizer(optimizer, epoch, config):
 
     return optimizer
 
+def to_one_hot(labels, n_classes, lowest_class_num=0):
+    '''
+    :param labels: should be size (n_samples, 1), values in the array should be integers or integer valued floats (will be cast)
+    :param lowest_class_num: the value of the lowest class label (ie whether first class is labeled 0 or 1)
+    :return: one hot encoded array size (n_samples, n_classes)
+    '''
+    n_samples = np.shape(labels)[0]
+    # print(n_samples)
+    # print(n_classes)
+    one_hot_array = np.zeros([n_samples, n_classes])
+
+    # if the lowest class number is
+    labels = labels - lowest_class_num
+    labels.astype('int')
+    one_hot_array[np.arange(n_samples), labels.T.astype(int)] = 1
+    return one_hot_array
 
 def xavier_initialize_weights(network):
     if type(network)==nn.Linear or type(network)==nn.Conv2d:

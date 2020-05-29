@@ -206,10 +206,10 @@ class ResNet_cifar10_lowp(ResNet):
                              quant_input=False)
 
         self.bn1 = nn.BatchNorm2d(16 * self.inflate)
-
-        if FLAGS.activation is None:
+        if FLAGS.activation is None or FLAGS.activation is 'relu':
             self.activation = nn.ReLU()
             bn_pos='pre_res'
+            print('bn_position assigned')
         elif FLAGS.activation=='tanh':
             self.activation = activation
             bn_pos='post_res'

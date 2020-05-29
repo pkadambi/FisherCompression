@@ -15,7 +15,7 @@ import numpy as np
 import os
 import pdb
 import scipy.stats as stats
-
+from SmoothLabelDataset import *
 '''
 
 n epochs = 300
@@ -74,7 +74,8 @@ tf.app.flags.DEFINE_string('loadpath', None, 'directory to load model from')
 tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode, model is not saved')
 
 #Distillation Params
-tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/cifar10/Resnet18/fp_buffer/Run3/resnet', 'path to FP model for loading for distillation')
+# tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/cifar10/Resnet18/fp_buffer/Run3/resnet', 'path to FP model for loading for distillation')
+tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/cifar10/Resnet18/fp_updated/Run0/resnet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
 
@@ -83,12 +84,15 @@ tf.app.flags.DEFINE_float('lr_end', 2e-4, 'learning rate at end of cosine decay'
 tf.app.flags.DEFINE_boolean('constant_fisher', True,'whether to keep fisher/inv_fisher constant from when the checkpoint')
 
 tf.app.flags.DEFINE_string('fisher_method', 'adam','which method to use when computing fisher')
+tf.app.flags.DEFINE_string('training_objective', 'xent','can be xent, sls, uls, cot')
 tf.app.flags.DEFINE_boolean('layerwise_fisher', True,'whether or not to use layerwise fisher')
 
 tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doesnt write anyhting, it just loads from `FLAGS.loadpath` and evaluates test acc once')
 
 tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whether we are in loss surface generation mode')
 
+tf.app.flags.DEFINE_float('smoothing_strength', 0., 'smoothing strength if regularization is `ULS` or `SLS`')
+tf.app.flags.DEFINE_integer('n_classes', 10, 'num classes')
 
 '''
 
@@ -101,6 +105,9 @@ from adamR import AdamR
 from models.resnet_quantized import ResNet_cifar10
 from models.resnet_lowp import ResNet_cifar10_lowp
 from models.resnet_binary import ResNet_cifar10_binary
+from cot_loss import *
+
+
 FLAGS = tf.app.flags.FLAGS
 
 flag_dict = FLAGS.flag_values_dict()
@@ -124,6 +131,7 @@ Config file save information
 
 #Config string
 
+#TODO: simplify this, should not have a boolean for each method
 fisher = FLAGS.regularization=='fisher'
 l2 = FLAGS.regularization=='l2'
 distillation = FLAGS.regularization=='distillation'
@@ -164,10 +172,23 @@ dataset = FLAGS.dataset
 n_epochs = FLAGS.n_epochs
 record_interval = FLAGS.record_interval
 
+xentropy_criterion = nn.CrossEntropyLoss()
+if FLAGS.training_objective.lower()=='cot':
+    cot_loss = ComplementEntropy()
 
-criterion = nn.CrossEntropyLoss()
+if FLAGS.training_objective.lower()=='uls' or FLAGS.training_objective.lower()=='sls':
 
-train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
+    if FLAGS.smoothing_strength==0.:
+        exit('\n\nError: specified label smoothing, but smoothing_strength is not set! \n\n')
+
+    train_data = SmoothedLabelDataset(split='train',
+                                      dataset=dataset,
+                                      smoothing_method=FLAGS.training_objective,
+                                      alpha_val=FLAGS.smoothing_strength)
+
+else:
+    train_data = get_dataset(name=dataset, split='train', transform=get_transform(name=dataset, augment=True))
+
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
 
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
@@ -179,6 +200,13 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuf
 n_runs = FLAGS.n_runs
 test_accs=[]
 
+if 'fisher' in reg_string or 'l2' in reg_string or 'inv_fisher' in reg_string or 'distillation' in reg_string:
+
+    post_training_regularizer = True
+
+else:
+
+    post_training_regularizer = False
 
 for k in range(n_runs):
     i=0
@@ -263,7 +291,6 @@ for k in range(n_runs):
         print('Restoring model to train from:\t' + loadpath)
         checkpoint = torch.load(loadpath)
 
-
         for l, (name, layer) in enumerate(model.named_modules()):
             # print(name)
             if FLAGS.q_min is None and FLAGS.q_max is None:
@@ -280,9 +307,9 @@ for k in range(n_runs):
                             print('NO weight.min_value saved before restore')
                         print(layer.weight.min())
                     break
+
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-
         optimizer.param_groups[0]['lr'] = FLAGS.lr
         # test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         # print(test_acc)
@@ -308,12 +335,9 @@ for k in range(n_runs):
         #                 print('Min/Max:\t'+str(layer.weight.min_value)+'\t'+str(layer.weight.max_value))
         #                 exit()
         #----------------------------------------------------------------
-        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+        test_loss, test_acc = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval)
         msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
         logstr+=msg
-        # config_file.write(msg)
-        # print(test_acc)
-        # exit()
 
     if distillation or distillation_fisher:
         checkpoint = torch.load(FLAGS.fp_loadpath)
@@ -323,12 +347,10 @@ for k in range(n_runs):
         teacher_model.cuda()
         teacher_model.load_state_dict(checkpoint['model_state_dict'])
 
-
         for param in teacher_model.parameters():
             param.requires_grad = False
 
-
-        test_loss, test_acc = test_model(test_loader, teacher_model, criterion, printing=False, eta=etaval)
+        test_loss, test_acc = test_model(test_loader, teacher_model, xentropy_criterion, printing=False, eta=etaval)
         msg += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
         logstr += msg
 
@@ -337,10 +359,8 @@ for k in range(n_runs):
         exit('Finished evaluating model')
 
     config_file.write(logstr)
-    # Accs: [93.72]
 
     print(logstr)
-    # exit()
 
     if FLAGS.logging:
         logfile.write(logstr)
@@ -379,15 +399,31 @@ for k in range(n_runs):
         model.train()
         start = time.time()
 
-        for iter, (inputs, targets) in enumerate(train_loader):
+        for iter, batch_data in enumerate(train_loader):
+
+            inputs = batch_data[0]
+            targets = batch_data[1]
 
 
             inputs = inputs.cuda()
             targets = targets.cuda()
-            # print(targets)
-            # exit()
+
+            if FLAGS.training_objective.lower()=='uls' or FLAGS.training_objective.lower()=='sls':
+                smooth_labels_target = batch_data[2]
+                smooth_labels_target = smooth_labels_target.cuda()
+
             output = model(inputs)
-            loss = criterion(output, targets)
+            loss = xentropy_criterion(output, targets)
+
+            #TODO: this code is very poorly written! rewrite it
+            if 'sls' in FLAGS.training_objective.lower() or 'uls' in FLAGS.training_objective:
+                model_probs = F.log_softmax(output)
+                loss = loss + nn.KLDivLoss(reduction='batchmean')(model_probs, smooth_labels_target)
+
+
+            if 'cot' in FLAGS.training_objective.lower():
+                yhat = output
+                loss = loss + cot_loss(yhat, targets)
 
             #adding distillation loss
             if distillation or distillation_fisher:
@@ -404,6 +440,7 @@ for k in range(n_runs):
             optimizer.zero_grad()
             loss.backward()
 
+            #TODO: refactor the monstrosity below, it was hastily written for the MS thesis work....
             #fisher loss without messing up gradient flow
             perts = []
             if FLAGS.is_quantized:
@@ -562,7 +599,7 @@ for k in range(n_runs):
                             fim_trace_adam = fim_trace_adam + torch.sum(optimizer.state[p]['exp_avg_sq'])
                             fmsqe_adam = fmsqe_adam + torch.sum(optimizer.state[p]['exp_avg_sq'] * pert_sq) * FLAGS.batch_size
 
-                            if FLAGS.regularization is not None:
+                            if post_training_regularizer:
                                 orig_adam_fisher_msqe = orig_adam_fisher_msqe + torch.sum(p.orig_fisher * pert_sq)
 
                                 corcoeffs_fisher.append(np.corrcoef(pertvalue, orig_fisher[jj])[1,0])
@@ -697,10 +734,10 @@ for k in range(n_runs):
         #Report test error every n epochs
         if epoch % 1 == 0 or epoch==n_epochs-1:
             msg = '\n*** TESTING ***\n'
-            test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+            test_loss, test_acc = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval)
 
             if NUM_CLASSES>10:
-                test_loss, test_acc_top5 = test_model(test_loader, model, criterion, printing=False, eta=etaval, topk=5)
+                test_loss, test_acc_top5 = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval, topk=5)
                 msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc Top-1/Top-5 [%.3f | %.3f]| Ep Time [%.1f]  | LR [%.5f]\n' % (epoch, test_loss, test_acc, test_acc_top5, elapsed,  optimizer.param_groups[0]['lr'])
             else:
                 msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.5f]\n' % (epoch, test_loss, test_acc, elapsed,  optimizer.param_groups[0]['lr'])
@@ -759,10 +796,10 @@ for k in range(n_runs):
             update_lr(epoch, optimizer, lr_scheduler, decay_method=FLAGS.lr_decay_type)
 
     print('\n*** TESTING ***\n')
-    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+    test_loss, test_acc = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval)
     print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| Ep Time [%.1f]  | LR [%.3f]' % (
         epoch, test_loss, test_acc, elapsed, optimizer.param_groups[0]['lr']))
-    test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
+    test_loss, test_acc = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval)
     test_accs.append(test_acc)
 
     msg = '************* FINAL ACCURACY *************\n'
@@ -834,7 +871,7 @@ for i, etaval_ in enumerate(etavals):
 
     for k in range(n_mc_iters):
 
-        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval_)
+        test_loss, test_acc = test_model(test_loader, model, xentropy_criterion, printing=False, eta=etaval_)
         # print(test_acc)
         test_accs[i, k] = test_acc
 
