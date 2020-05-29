@@ -14,7 +14,7 @@ tmp
 *_~*
 parabolic_interpolation/results/
 SLS_param.tar.gz
-SLS_param/
+#SLS_param/
 fashion_model_fp
 quantize.py.backup
 
