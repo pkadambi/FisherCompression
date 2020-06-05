@@ -261,7 +261,7 @@ for zz, eta_ in enumerate(etas):
                             # print(name)
                             # print(layer.qweight.size())
 
-                            pertw = layer.weight - layer.qweight
+                            pertw = layer.qweight - layer.weight
                             # pertb = layer.bias - layer.qbias
                             layer.weight.pert = pertw
                             # layer.bias.pert = pertb

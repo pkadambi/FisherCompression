@@ -145,10 +145,10 @@ elif FLAGS.dataset=='cifar100':
 
 
 
-if FLAGS.regularization == 'fisher' or FLAGS.regularization=='l2' or FLAGS.regularization=='inf_fisher':
-    reg_string = FLAGS.regularization
-else:
-    reg_string = ''
+# if FLAGS.regularization == 'fisher' or FLAGS.regularization=='l2' or FLAGS.regularization=='inf_fisher':
+#     reg_string = FLAGS.regularization
+# else:
+#     reg_string = ''
 
 
 #Save path
@@ -179,7 +179,7 @@ if FLAGS.training_objective.lower()=='cot':
 if FLAGS.training_objective.lower()=='uls' or FLAGS.training_objective.lower()=='sls':
 
     if FLAGS.smoothing_strength==0.:
-        exit('\n\nError: specified label smoothing, but smoothing_strength is not set! \n\n')
+        exit('\n\nError: specified label smoothing, but flag `smoothing_strength` is not set! \n\n')
 
     train_data = SmoothedLabelDataset(split='train',
                                       dataset=dataset,
@@ -200,7 +200,8 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuf
 n_runs = FLAGS.n_runs
 test_accs=[]
 
-if 'fisher' in reg_string or 'l2' in reg_string or 'inv_fisher' in reg_string or 'distillation' in reg_string:
+reg_string=FLAGS.regularization
+if 'fisher'==reg_string or 'l2'==reg_string or 'inv_fisher'==reg_string or 'distillation'==reg_string:
 
     post_training_regularizer = True
 
@@ -288,6 +289,7 @@ for k in range(n_runs):
 
     if FLAGS.loadpath is not None:
         loadpath = os.path.join(FLAGS.loadpath, 'Run%d' % (k), 'resnet')
+        # loadpath = FLAGS.loadpath
         print('Restoring model to train from:\t' + loadpath)
         checkpoint = torch.load(loadpath)
 
@@ -408,17 +410,21 @@ for k in range(n_runs):
             inputs = inputs.cuda()
             targets = targets.cuda()
 
+            output = model(inputs)
+            loss = xentropy_criterion(output, targets)
+
             if FLAGS.training_objective.lower()=='uls' or FLAGS.training_objective.lower()=='sls':
+                # pdb.set_trace()
                 smooth_labels_target = batch_data[2]
                 smooth_labels_target = smooth_labels_target.cuda()
 
-            output = model(inputs)
-            loss = xentropy_criterion(output, targets)
+                # pdb.set_trace()
 
             #TODO: this code is very poorly written! rewrite it
             if 'sls' in FLAGS.training_objective.lower() or 'uls' in FLAGS.training_objective:
                 model_probs = F.log_softmax(output)
-                loss = loss + nn.KLDivLoss(reduction='batchmean')(model_probs, smooth_labels_target)
+                # loss = loss + nn.KLDivLoss(reduction='batchmean')(model_probs, smooth_labels_target)
+                loss = nn.KLDivLoss(reduction='batchmean')(model_probs, smooth_labels_target)
 
 
             if 'cot' in FLAGS.training_objective.lower():
@@ -600,6 +606,7 @@ for k in range(n_runs):
                             fmsqe_adam = fmsqe_adam + torch.sum(optimizer.state[p]['exp_avg_sq'] * pert_sq) * FLAGS.batch_size
 
                             if post_training_regularizer:
+                                # pdb.set_trace()
                                 orig_adam_fisher_msqe = orig_adam_fisher_msqe + torch.sum(p.orig_fisher * pert_sq)
 
                                 corcoeffs_fisher.append(np.corrcoef(pertvalue, orig_fisher[jj])[1,0])
