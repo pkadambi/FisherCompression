@@ -271,13 +271,11 @@ for zz, eta_ in enumerate(etas):
                     for group in optimizer.param_groups:
                         for p in group['params']:
                             if hasattr(p, 'pert'):
-                                # if FLAGS.fisher_method == 'adam':
-                                # print(p.size())
                                 p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
 
                             # layer.weight.grad += FLAGS.gamma * 2 * inv_FIM * pertw
                             # layer.bias.grad += FLAGS.gamma * 2 * inv_FIM_bias *  pertb
-                # exit()
+
                 for l, (name, layer) in enumerate(model.named_modules()):
                     with torch.no_grad():
                         if hasattr(layer, 'weight'):

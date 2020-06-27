@@ -159,6 +159,47 @@ def update_lr(epoch, optimizer, scheduler=None, decay_method='cosine'):
             for g in optimizer.param_groups:
                 g['lr'] = 0.0008
 
+
+def test_model_ptq(data_loader, model, criterion, printing=True, topk=1, is_quantized=False,
+                   n_bits_wt=8, n_bits_act=8):
+
+    if printing:
+        print('Evaluating Model...')
+
+    model.eval()
+
+    n_test = 0.
+    n_correct = 0.
+    loss = 0.
+
+    for iter, (inputs, target) in enumerate(data_loader):
+        n_batch = inputs.size()[0]
+        # print(iter)
+        inputs = inputs.cuda()
+        target = target.cuda()
+
+        output = model(inputs, is_quantized=is_quantized, n_bits_act=n_bits_act, n_bits_wt=n_bits_wt)
+
+        loss += criterion(output, target).item()
+        # acc_ = accuracy(output, target)
+
+        n_correct += accuracy(output, target, topk=(topk,)).item() * n_batch / 100.
+        n_test += n_batch
+
+
+    test_accuracy = 100 * n_correct / n_test
+    test_loss = 128 * loss / n_test
+
+    if printing:
+        print('Test Accuracy %.3f' % test_accuracy)
+        print('Test Loss %.3f' % test_loss)
+
+    # Revert model to training mode before exiting
+    model.train()
+
+    return test_loss, test_accuracy
+
+
 def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None, topk=1):
 
     #switch to eval mode

@@ -145,7 +145,7 @@ class Quantize(nn.Module):
 
     def forward(self, input, num_bits, quantize):
 
-        if FLAGS.regularization is None:
+        if FLAGS.learnminmax is None:
 
             min_value = input.detach().view(input.size(0), -1).min(-1)[0].mean()
             max_value = input.detach().view(input.size(0), -1).max(-1)[0].mean()
@@ -217,12 +217,12 @@ class QConv2d(nn.Conv2d):
 
             #TODO: incorporate the running min style here (w/momentum)
             #  see if it's better than straight min/max
-            if self.q_min is None and FLAGS.regularization is None and self.training:
+            if self.q_min is None and FLAGS.learnminmax and self.training:
                 # self.running_min.add_(self.weight.min() - self.running_min)
                 self.running_min = self.weight.min()
 
 
-            if self.q_max is None and FLAGS.regularization is None and self.training:
+            if self.q_max is None and FLAGS.learnminmax and self.training:
                 # self.running_max.add_(self.weight.max() - self.running_max)
                 self.running_max = self.weight.max()
 
@@ -245,7 +245,7 @@ class QConv2d(nn.Conv2d):
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
 
-            if FLAGS.regularization:
+            if not FLAGS.learnminmax:
                 # pdb.set_trace()
                 self.weight.data = tensor_clamp(self.weight.data, self.running_min, self.running_max)
 
@@ -356,14 +356,14 @@ class QLinear(nn.Linear):
                 qinput = input
 
             #Code for learning min/max
-            if self.q_min is None and FLAGS.regularization is None and self.training:
+            if self.q_min is None and FLAGS.learnminmax and self.training:
                 self.running_min = self.weight.min()
 
-            if self.q_max is None and FLAGS.regularization is None and self.training:
+            if self.q_max is None and FLAGS.learnminmax and self.training:
                 self.running_max = self.weight.max()
 
 
-            if FLAGS.regularization:
+            if not FLAGS.learnminmax:
                 # self.weight.data.tensor_clamp(self.min_value, self.max_value)
                 self.weight.data = tensor_clamp(self.weight.data, self.running_min, self.running_max)
 

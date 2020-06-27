@@ -85,6 +85,8 @@ tf.app.flags.DEFINE_boolean('eval', False,'if this flag is enabled, the code doe
 tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whether we are in loss surface generation mode')
 
 tf.app.flags.DEFINE_string('regularizer', '', help='can have `SLS` OR `ULS`, `Fisher` OR `MSQE`, `distillation`')
+tf.app.flags.DEFINE_boolean('learnminmax', True, 'whether to learn minmax')
+
 
 '''
 
@@ -119,9 +121,7 @@ torch.cuda.set_device(0)
 
 
 def regularizer_multiplier(curr_epoch, n_epochs):
-
     midpt = int(n_epochs/2)
-
     return 1/(1+np.exp(-0.5*(curr_epoch - midpt)))
 
 #TODO: add dataset label smoothing here
@@ -301,6 +301,7 @@ for epoch in range(n_epochs):
         if COT:
             msg += '| COT Loss [%.3f]' % cot_lossval
         print(msg)
+
 print('\n*** TESTING ***\n')
 # test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
 # print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| LR [%.3f]' %

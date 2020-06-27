@@ -115,7 +115,7 @@ class SGDR(Optimizer):
 
                 p.data.add_(-group['lr'], d_p)
 
-                if hasattr(p, 'pert') and regularizer is not None:
+                if hasattr(p, 'pert') and gamma>0.:
 
                     if regularizer=='l2':
                         p.data.add_(-gamma * group['lr'], p.pert)

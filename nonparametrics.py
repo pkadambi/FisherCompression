@@ -130,10 +130,14 @@ def calculate_alpha_hat(alpha, beta, n_classes, clusterwise_ber, examples_per_cl
 
     C = len(clusterwise_ber) # capital C is the number of clusters
 
+    ahat_i = []
+    for i in range(C):
+        eq_subtr =  np.abs(R[i] * (K/(K -1)) - 1)
+        eq_sum = np.sum([np.abs(R[c] * (K/ (K - 1)) - 1) * w[c] for c in range(C)])
+        ahat_i.append(alpha + (beta/2) * (eq_sum - eq_subtr))
 
-
-    ahat_i = [alpha + (beta/2) * np.sum([np.abs(R[c] * (K/ (K - 1)) - 1) * w[c] for c in range(C)]) -
-              np.abs(R[i] * (K/(K -1)) - 1) for i in range(C)]
+    # ahat_i = [alpha + (beta/2) * (np.sum([np.abs(R[c] * (K/ (K - 1)) - 1) * w[c] for c in range(C)]) -
+    #           np.abs(R[i] * (K/(K -1)) - 1)) for i in range(C)]
 
     return ahat_i
 

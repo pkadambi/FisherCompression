@@ -2,12 +2,15 @@ import math
 import torch
 from torch.optim.optimizer import Optimizer
 import tensorflow as tf
-
+import matplotlib.pyplot as plt
 FLAGS = tf.app.flags.FLAGS
-gamma = FLAGS.gamma
+gamma_target = FLAGS.gamma
+gamma = gamma_target
 diag_load = FLAGS.diag_load_const
-
-
+import pdb
+from debug_helper_funcs import *
+# print(gamma_target)
+# exit()
 class AdamR(Optimizer):
     r"""Implements AdamW algorithm.
 
@@ -54,7 +57,7 @@ class AdamR(Optimizer):
     def __setstate__(self, state):
         super(AdamR, self).__setstate__(state)
 
-    def step(self, regularizer = None, closure=None, return_reg_val=False, gamma=gamma):
+    def step(self, regularizer = None, closure=None, return_reg_val=False, gamma=gamma, pause=False):
         """Performs a single optimization step.
 
         Arguments:
@@ -107,30 +110,41 @@ class AdamR(Optimizer):
 
                 denom = exp_avg_sq.sqrt().add_(group['eps'])
 
+                # if pause:
+                #     print()
+                #     pdb.set_trace()
+
+                FIM_estimate = exp_avg_sq + diag_load
+
                 step_size = group['lr'] * math.sqrt(bias_correction2) / bias_correction1
 
                 # if p has a perturbation assigned to it, it is regularized
-                #TODO: Add regularization here
-                if hasattr(p, 'pert'):
-                    if regularizer=='l2':
-                        p.data.add_(-group['lr'], p.pert)
 
-                    elif regularizer=='fisher':
-                        reg_grad = p.pert * exp_avg_sq
-                        p.data.add_(-gamma * group['lr'], reg_grad)
-                        #diagonal loading for fisher regularizer
-                        p.data.add_(-gamma * diag_load * group['lr'], p.pert)
+
+                #TODO: Add regularization here
+                if hasattr(p, 'pert') and gamma==gamma_target:
+                    # if pause:
+                    #     pdb.set_trace()
+                    if regularizer=='l2':
+                        p.data.add_(gamma * group['lr'], p.pert)
+                    elif regularizer=='fisher' or regularizer=='gradual_fisher':
+
+                        reg_grad = p.pert * FIM_estimate
+                        p.data.add_(gamma * group['lr'], reg_grad)
+
 
                     elif regularizer == 'inv_fisher':
-                        FIM = exp_avg_sq
+                        # pdb.set_trace()
+                        inv_FIM = 1 / (FIM_estimate)
+                        inv_FIM = inv_FIM * diag_load
 
-                        inv_FIM = 1 / (FIM + 1e-7)
-                        inv_FIM = inv_FIM * 1e-7
+
+                        # inv_FIM = 1/FIM_estimate
+
                         reg_grad = inv_FIM * p.pert
 
-                        p.data.add_(-gamma * group['lr'], p.pert)
+                        p.data.add_(gamma * group['lr'], reg_grad)
                         # diagonal loading for fisher regularizer
-                        p.data.add_(-gamma * diag_load * group['lr'], p.pert)
 
                 p.data.addcdiv_(-step_size, exp_avg, denom)
 

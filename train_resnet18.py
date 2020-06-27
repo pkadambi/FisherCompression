@@ -52,8 +52,8 @@ tf.app.flags.DEFINE_integer('n_runs', 5, 'number of times to train network')
 
 tf.app.flags.DEFINE_boolean('enforce_zero', False, 'whether or not enfore that one of the quantizer levels is a zero')
 
-tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`')
-# tf.app.flags.DEFINE_string('regularization', 'distillation', 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`')
+# tf.app.flags.DEFINE_string('regularization', None, 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`, `gradual_fisher`')
+tf.app.flags.DEFINE_string('regularization', 'distillation', 'type of regularization to use `l2,` `fisher` or `distillation` or `inv_fisher`')
 
 tf.app.flags.DEFINE_float('gamma', 0.01, 'gamma value')
 tf.app.flags.DEFINE_float('diag_load_const', 0.005, 'diagonal loading constant')
@@ -93,12 +93,16 @@ tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False, help='whet
 
 tf.app.flags.DEFINE_float('smoothing_strength', 0., 'smoothing strength if regularization is `ULS` or `SLS`')
 tf.app.flags.DEFINE_integer('n_classes', 10, 'num classes')
+tf.app.flags.DEFINE_boolean('learnminmax', True, 'whether to learn minmax')
 
 '''
 
 NOTE: the following imports must be after flags declarations since these files query the flags 
 
 '''
+FLAGS = tf.app.flags.FLAGS
+reg_string = FLAGS.regularization
+
 
 from sgdR import SGDR
 from adamR import AdamR
@@ -108,12 +112,12 @@ from models.resnet_binary import ResNet_cifar10_binary
 from cot_loss import *
 
 
-FLAGS = tf.app.flags.FLAGS
 
 flag_dict = FLAGS.flag_values_dict()
 
 n_bits_wt = FLAGS.n_bits_wt
 n_bits_act = FLAGS.n_bits_act
+
 
 
 '''
@@ -129,6 +133,10 @@ Config file save information
 
 '''
 
+def regularizer_multiplier(curr_epoch, n_epochs):
+    midpt = int(n_epochs/4)
+    return 1/(1+np.exp(-0.05*(curr_epoch - midpt)))
+
 #Config string
 
 #TODO: simplify this, should not have a boolean for each method
@@ -137,6 +145,7 @@ l2 = FLAGS.regularization=='l2'
 distillation = FLAGS.regularization=='distillation'
 distillation_fisher = FLAGS.regularization=='distillation_fisher'
 inv_fisher = FLAGS.regularization=='inv_fisher'
+gradual_fisher = FLAGS.regularization=='gradual_fisher'
 
 if FLAGS.dataset=='cifar10':
     NUM_CLASSES=10
@@ -200,7 +209,6 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuf
 n_runs = FLAGS.n_runs
 test_accs=[]
 
-reg_string=FLAGS.regularization
 if 'fisher'==reg_string or 'l2'==reg_string or 'inv_fisher'==reg_string or 'distillation'==reg_string:
 
     post_training_regularizer = True
@@ -446,6 +454,8 @@ for k in range(n_runs):
             optimizer.zero_grad()
             loss.backward()
 
+            # pdb.set_trace()
+
             #TODO: refactor the monstrosity below, it was hastily written for the MS thesis work....
             #fisher loss without messing up gradient flow
             perts = []
@@ -454,113 +464,69 @@ for k in range(n_runs):
                     if 'conv' in name or 'fc' in name:
                         with torch.no_grad():
                             if hasattr(layer, 'qweight'):
-
                                 pertw = layer.weight - layer.qweight
                                 layer.weight.pert = pertw
                                 perts.append(pertw)
 
-            # if FLAGS.regularization=='fisher' and epoch==0 and iter==0:
-            if FLAGS.loadpath is not None:
+            max_orig_fisher = torch.tensor(0.).cuda()
+            max_inv_fisher = torch.tensor(0.).cuda()
 
-                max_orig_fisher = torch.tensor(0.).cuda()
-                max_inv_fisher = torch.tensor(0.).cuda()
-
-                if epoch==0 and iter==0:
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if hasattr(p, 'pert'):
-                                if FLAGS.fisher_method=='adam':
-                                    p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
-                                    p.orig_fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
-                                    max_orig_fisher = torch.max(max_orig_fisher, torch.max(p.orig_fisher))
-                                elif FLAGS.fisher_method=='g2':
-                                    p.fisher = p.grad * p.grad * FLAGS.batch_size
-
-
-                                # max_inv_fisher = torch.max(max_inv_fisher, torch.max(p.inv_FIM))
-
-                    # print(max_orig_fisher)
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if hasattr(p, 'pert'):
-
-                                orig_fisher.append(p.fisher.view(-1).cpu().numpy()/max_orig_fisher.cpu().numpy())
-                                # orig_inv_fish.append(p.inv_FIM.view(-1).cpu().numpy()/max_inv_fisher.cpu().numpy())
-
-                                if FLAGS.layerwise_fisher:
-                                    p.fisher = p.fisher / torch.max(p.fisher)
-                                    # p.inv_FIM = p.inv_FIM / torch.max(p.inv_FIM)
-                                else:
-                                    p.fisher = p.fisher / max_orig_fisher
-
-                                p.inv_FIM = 1 / (p.fisher + 1e-7)
-                                p.inv_FIM[p.inv_FIM>1e4] = 1e4
-                                p.inv_FIM = p.inv_FIM/1e4
-                                inv_f = p.inv_FIM.view(-1).cpu().numpy() * max_orig_fisher.cpu().numpy()
-                                orig_inv_fish.append(inv_f)
-
-                elif distillation_fisher:
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if hasattr(p, 'pert'):
-                                if FLAGS.fisher_method=='adam':
-                                    p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
-                                    max_fisher = torch.max(p.fisher)
-                                elif FLAGS.fisher_method=='g2':
-                                    p.fisher = p.grad * p.grad * FLAGS.batch_size
+            for group in optimizer.param_groups:
+                for p in group['params']:
+                    # pdb.set_trace()
+                    if hasattr(p, 'pert'):
+                        if FLAGS.fisher_method=='adam':
+                            if iter == 0:
+                                p.fisher = torch.zeros_like(p)
+                            else:
+                                p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
+                                p.orig_fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
+                                max_orig_fisher = torch.max(max_orig_fisher, torch.max(p.orig_fisher))
+                        elif FLAGS.fisher_method=='g2':
+                            p.fisher = p.grad * p.grad * FLAGS.batch_size
 
 
-                                # max_inv_fisher = torch.max(max_inv_fisher, torch.max(p.inv_FIM))
+                        # max_inv_fisher = torch.max(max_inv_fisher, torch.max(p.inv_FIM))
 
-                    # print(max_orig_fisher)
-                    for group in optimizer.param_groups:
-                        for p in group['params']:
-                            if hasattr(p, 'pert'):
+            # print(max_orig_fisher)
+            for group in optimizer.param_groups:
+                for p in group['params']:
+                    if hasattr(p, 'pert'):
+                        # orig_fisher.append(p.fisher.view(-1).cpu().numpy()/max_orig_fisher.cpu().numpy())
+                        # orig_inv_fish.append(p.inv_FIM.view(-1).cpu().numpy()/max_inv_fisher.cpu().numpy())
+                        if iter > 0:
+                            # pdb.set_trace()
+                            if FLAGS.layerwise_fisher:
+                                p.fisher = p.fisher / torch.max(p.fisher)
+                                # p.inv_FIM = p.inv_FIM / torch.max(p.inv_FIM)
+                            else:
+                                p.fisher = p.fisher / max_orig_fisher
 
-                                if FLAGS.layerwise_fisher:
-                                    p.fisher = p.fisher / torch.max(p.fisher)
-                                    # p.inv_FIM = p.inv_FIM / torch.max(p.inv_FIM)
-                                else:
-                                    p.fisher = p.fisher / max_orig_fisher
-
-                                # p.inv_FIM = 1 / (p.fisher + 1e-7)
-                                # p.inv_FIM[p.inv_FIM>1e4] = 1e4
-                                # p.inv_FIM = p.inv_FIM/1e4
-                                # inv_f = p.inv_FIM.view(-1).cpu().numpy() * max_orig_fisher.cpu().numpy()
-                                # orig_inv_fish.append(inv_f)
-
-
-                else:
-
-                    if not FLAGS.constant_fisher:
-
-                        for group in optimizer.param_groups:
-                            for p in group['params']:
-                                if hasattr(p, 'pert'):
-                                    if FLAGS.fisher_method == 'adam':
-                                        p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
-                                    elif FLAGS.fisher_method == 'g2':
-                                        p.fisher = p.grad * p.grad * FLAGS.batch_size
-
-                                    p.inv_FIM = 1 / (p.fisher + 1e-7)
-                                    p.inv_FIM = p.inv_FIM * 1e-7
-            # else:
-            #     if FLAGS.regularization=='fisher_training':
-
+                            p.inv_FIM = 1 / (p.fisher + 1e-7)
+                            p.inv_FIM[p.inv_FIM>1e4] = 1e4
+                            p.inv_FIM = p.inv_FIM/1e4
+                            inv_f = p.inv_FIM.view(-1).cpu().numpy() * max_orig_fisher.cpu().numpy()
+                            # orig_inv_fish.append(inv_f)
+                            # pdb.set_trace()
 
             # print(sum([np.sum(np.ones_like(p_[0].detach().cpu().numpy())) for p_ in ps]))
 
-            gamma_ = FLAGS.gamma
 
-            if distillation_fisher:
-                if epoch<20:
-                    gamma_=0.
-                elif epoch<40:
-                    gamma_=FLAGS.gamma * .5
-                elif epoch<60:
-                    gamma_=FLAGS.gamma * .75
-                elif epoch<70:
-                    gamma_ = FLAGS.gamma
+            if gradual_fisher and iter>2:
+                gamma_ = regularizer_multiplier(epoch-int(n_epochs/2)-50, n_epochs)
+
+            else:
+                gamma_ =0
+
+            # if distillation_fisher:
+            #     if epoch<20:
+            #         gamma_=0.
+            #     elif epoch<40:
+            #         gamma_=FLAGS.gamma * .5
+            #     elif epoch<60:
+            #         gamma_=FLAGS.gamma * .75
+            #     elif epoch<70:
+            #         gamma_ = FLAGS.gamma
 
 
             if FLAGS.optimizer=='sgdr':
@@ -605,23 +571,23 @@ for k in range(n_runs):
                             fim_trace_adam = fim_trace_adam + torch.sum(optimizer.state[p]['exp_avg_sq'])
                             fmsqe_adam = fmsqe_adam + torch.sum(optimizer.state[p]['exp_avg_sq'] * pert_sq) * FLAGS.batch_size
 
-                            if post_training_regularizer:
-                                # pdb.set_trace()
-                                orig_adam_fisher_msqe = orig_adam_fisher_msqe + torch.sum(p.orig_fisher * pert_sq)
-
-                                corcoeffs_fisher.append(np.corrcoef(pertvalue, orig_fisher[jj])[1,0])
-                                spearmans_fisher.append(stats.spearmanr(pertvalue, orig_fisher[jj])[0])
-
-                                if 'fisher' in FLAGS.regularization=='inv_fisher':
-                                    spearmans_regularizer.append(
-                                        stats.spearmanr(pertvalue, p.inv_FIM.view(-1).cpu().numpy())[0])
-                                    corcoeffs_regularizer.append(
-                                        np.corrcoef(pertvalue, p.inv_FIM.view(-1).cpu().numpy())[0])
-                                else:
-                                    spearmans_regularizer.append(
-                                        stats.spearmanr(pertvalue, p.fisher.view(-1).cpu().numpy())[0])
-                                    corcoeffs_regularizer.append(
-                                        np.corrcoef(pertvalue, p.fisher.view(-1).cpu().numpy())[0])
+                            # if post_training_regularizer:
+                            #     # pdb.set_trace()
+                            #     orig_adam_fisher_msqe = orig_adam_fisher_msqe + torch.sum(p.orig_fisher * pert_sq)
+                            #
+                            #     corcoeffs_fisher.append(np.corrcoef(pertvalue, orig_fisher[jj])[1,0])
+                            #     spearmans_fisher.append(stats.spearmanr(pertvalue, orig_fisher[jj])[0])
+                            #
+                            #     if 'fisher' in FLAGS.regularization:
+                            #         spearmans_regularizer.append(
+                            #             stats.spearmanr(pertvalue, p.inv_FIM.view(-1).cpu().numpy())[0])
+                            #         corcoeffs_regularizer.append(
+                            #             np.corrcoef(pertvalue, p.inv_FIM.view(-1).cpu().numpy())[0])
+                            #     else:
+                            #         spearmans_regularizer.append(
+                            #             stats.spearmanr(pertvalue, p.fisher.view(-1).cpu().numpy())[0])
+                            #         corcoeffs_regularizer.append(
+                            #             np.corrcoef(pertvalue, p.fisher.view(-1).cpu().numpy())[0])
 
                             jj+=1
 
@@ -632,8 +598,8 @@ for k in range(n_runs):
 
                 # msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| Trace [%.5f]' % (i, lossval, train_acc, msqe, fim_trace )
                 if FLAGS.regularization is not None:
-                    msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6f]| Trace [%.4f]| ORIG FMSQE [%.5f]| Orig Corr [%.2f]| Orig Spearman [%.2f]' % (
-                        i, lossval, train_acc, msqe, fmsqe_adam, reg_val, fim_trace_adam, orig_adam_fisher_msqe, np.mean(corcoeffs_fisher), np.mean(spearmans_fisher))
+                    msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6f]| Trace [%.4f]| ORIG FMSQE [%.5f]|' % (
+                        i, lossval, train_acc, msqe, fmsqe_adam, reg_val, fim_trace_adam, orig_adam_fisher_msqe)
                 else:
                     msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]| MSQE [%.3f]| FMSQE [%.4f]| REG [%.6f]| Trace [%.4f]' % \
                           (i, lossval, train_acc, msqe, fmsqe_adam, reg_val, fim_trace_adam)
@@ -641,25 +607,26 @@ for k in range(n_runs):
 
                 logstr += msg + '\n'
 
-                if FLAGS.is_quantized:
-                    fim_trace_save_g2.append(fim_trace_g2.item())
-                    fim_trace_save_adam.append(fim_trace_adam.item())
-
-                    fmsqe_save_adam.append(fmsqe_adam.item())
-                    fmsqe_save_g2.append(fmsqe_g2.item())
-
-                    if FLAGS.regularization is not None:
-                        fmsqe_save_original_adam.append(orig_adam_fisher_msqe.item())
-                        pearson_fisher.append(corcoeffs_fisher)
-                        spearman_fisher.append(spearmans_fisher)
-
-                        pearson_regularizer.append(corcoeffs_regularizer)
-                        spearman_regularizer.append(spearmans_regularizer)
-
-                    msqe_save.append(msqe.item())
-
-                    regularizer_save.append(reg_val.item())
-                    loss_save.append(lossval)
+                # if FLAGS.is_quantized:
+                #     fim_trace_save_g2.append(fim_trace_g2.item())
+                #     fim_trace_save_adam.append(fim_trace_adam.item())
+                #
+                #     fmsqe_save_adam.append(fmsqe_adam.item())
+                #     fmsqe_save_g2.append(fmsqe_g2.item())
+                #
+                #     if FLAGS.regularization is not None and post_training_regularizer:
+                #
+                #         fmsqe_save_original_adam.append(orig_adam_fisher_msqe.item())
+                #         pearson_fisher.append(corcoeffs_fisher)
+                #         spearman_fisher.append(spearmans_fisher)
+                #
+                #         pearson_regularizer.append(corcoeffs_regularizer)
+                #         spearman_regularizer.append(spearmans_regularizer)
+                #
+                #     msqe_save.append(msqe.item())
+                #
+                #     regularizer_save.append(reg_val.item())
+                #     loss_save.append(lossval)
 
                 #TODO: recode below for running_min instead of layer.weight.min_value
 
@@ -753,25 +720,25 @@ for k in range(n_runs):
 
 
         #save dict every epoch
-        if epoch % 1 == 0:
-            savedict = {'fim_trace_g2': fim_trace_save_g2, 'fim_trace_adam': fim_trace_save_adam,
-                        'fmsqe_adam': fmsqe_save_adam, 'fmsqe_g2': fmsqe_save_g2,
-                        'msqe': msqe_save, 'regularizer': regularizer_save,
-                        'ce_loss': loss_save}
-
-            if FLAGS.regularization is not None:
-                savedict['fmqe_adam_orig'] = fmsqe_save_original_adam
-
-                savedict['pearson_fisher'] = np.array(pearson_fisher).tolist()
-                savedict['spearman_fisher'] = np.array(spearman_fisher).tolist()
-
-                savedict['pearson_reg'] = np.array(pearson_regularizer).tolist()
-                savedict['spearman_reg'] = np.array(spearman_regularizer).tolist()
-
-            # print(savedict)
-            with open(os.path.join(SAVEPATH_run, 'data_dict.txt'),'w+') as file:
-                json.dump(savedict, file)
-            file.close()
+        # if epoch % 1 == 0:
+        #     savedict = {'fim_trace_g2': fim_trace_save_g2, 'fim_trace_adam': fim_trace_save_adam,
+        #                 'fmsqe_adam': fmsqe_save_adam, 'fmsqe_g2': fmsqe_save_g2,
+        #                 'msqe': msqe_save, 'regularizer': regularizer_save,
+        #                 'ce_loss': loss_save}
+        #
+        #     if FLAGS.regularization is not None:
+        #         savedict['fmqe_adam_orig'] = fmsqe_save_original_adam
+        #
+        #         savedict['pearson_fisher'] = np.array(pearson_fisher).tolist()
+        #         savedict['spearman_fisher'] = np.array(spearman_fisher).tolist()
+        #
+        #         savedict['pearson_reg'] = np.array(pearson_regularizer).tolist()
+        #         savedict['spearman_reg'] = np.array(spearman_regularizer).tolist()
+        #
+        #     # print(savedict)
+        #     with open(os.path.join(SAVEPATH_run, 'data_dict.txt'),'w+') as file:
+        #         json.dump(savedict, file)
+        #     file.close()
 
 
         #save model every 15 epochs

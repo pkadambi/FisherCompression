@@ -93,6 +93,8 @@ tf.app.flags.DEFINE_boolean('loss_surf_eval_d_qtheta', default=False,
                             help='whether we are in loss surface generation mode')
 
 tf.app.flags.DEFINE_string('regularizer', '', help='can have `SLS` OR `ULS`, `Fisher` OR `MSQE`, `distillation`')
+tf.app.flags.DEFINE_boolean('learnminmax', True, 'whether to learn minmax')
+
 
 '''
 
@@ -272,15 +274,67 @@ train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, sh
 test_loader = torch.utils.data.DataLoader(test_data, batch_size=batch_size, shuffle=False,
                                           num_workers=n_workers, pin_memory=True)
 
-# for i in range(ncomponents_gmm):
-#     plt.hist(np.log(entropy_per_cluster[i]), bins=20)
-#     plt.hist(entropy_per_cluster[i], bins=20)
-
 median_entropies = [np.median(entropy_per_cluster[i]) for i in range(ncomponents_gmm)]
+
+mean_log_entropy = [np.mean(np.log(entropy_per_cluster[i])) for i in range(ncomponents_gmm)]
+median_log_entropy = [np.median(np.log(entropy_per_cluster[i])) for i in range(ncomponents_gmm)]
+
+#Compute BER
+print('Computing Delta_ij')
+dijs = [compute_delta_ijs(data__, labels__, n_classes=10) for data__, labels__ in zip(data_clustered, labels_clustered)]
+
+print('Computing BER')
+bers = [ber_from_delta_ij(dij, n_classes=10) for dij in dijs]
+examples_per_cluster = [len(d) for d in data_clustered]
+
+
 plt.figure()
 plt.scatter(np.arange(ncomponents_gmm), [np.median(entropy_per_cluster[i]) for i in range(ncomponents_gmm)])
+
 plt.figure()
-plt.hist(median_entropies)
+plt.hist(median_entropies, bins=20)
+plt.title('Histogram of Median Entropy of Cluster')
+
+# plt.figure()
+# for i in range(ncomponents_gmm):
+#     plt.hist(np.log(entropy_per_cluster[i]), bins=20)
+# plt.xlabel('Log Entropy')
+# plt.ylabel('Count')
+# plt.title('Histogram of Entropy Per Cluster')
+
+plt.figure()
+plt.scatter(bers, median_log_entropy, label='Median Log Entropy')
+plt.legend()
+plt.xlabel('BER')
+plt.ylabel('Log Entropy')
+plt.title('Cluster Ber vs Log Entropy of Teacher Output for Cluster')
+
+plt.figure()
+plt.scatter(bers, mean_log_entropy, label='Mean Log Entropy')
+plt.legend()
+plt.xlabel('BER')
+plt.ylabel('Log Entropy')
+plt.title('Ber vs Log Entropy of Teacher')
+
+inds = np.argsort(bers)
+plt.figure()
+plt.hist(entropy_per_cluster[inds[0]])
+plt.xlabel('Entropy')
+plt.ylabel('Count')
+plt.title('Entropy Histogram for Low BER Cluster')
+
+plt.figure()
+plt.hist(entropy_per_cluster[inds[-1]])
+plt.xlabel('Entropy')
+plt.ylabel('Count')
+plt.title('Entropy Histogram for High BER Cluster')
+
+plt.figure()
+alphahats = calculate_alpha_hat(alpha=.1, beta=.1, n_classes=10,
+                                clusterwise_ber=bers,
+                                examples_per_cluster=examples_per_cluster)
+plt.scatter(bers, alphahats)
+plt.title('BER vs Alpha Hat')
 plt.show()
 exit()
 
