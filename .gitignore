@@ -1,6 +1,6 @@
 # ignore all . folders but include . files
 .*/
-
+tmp_models/
 models/__pycache__/
 utils/__pycache__/
 __pycache__/
