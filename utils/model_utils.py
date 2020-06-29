@@ -159,7 +159,7 @@ def update_lr(epoch, optimizer, scheduler=None, decay_method='cosine'):
             for g in optimizer.param_groups:
                 g['lr'] = 0.0008
 
-
+import pdb
 def test_model_ptq(data_loader, model, criterion, printing=True, topk=1, is_quantized=False,
                    n_bits_wt=8, n_bits_act=8):
 
@@ -175,9 +175,8 @@ def test_model_ptq(data_loader, model, criterion, printing=True, topk=1, is_quan
     for iter, (inputs, target) in enumerate(data_loader):
         n_batch = inputs.size()[0]
         # print(iter)
-        inputs = inputs.cuda()
-        target = target.cuda()
-
+        inputs = inputs.cuda().float()
+        target = target.cuda()        # pdb.set_trace()
         output = model(inputs, is_quantized=is_quantized, n_bits_act=n_bits_act, n_bits_wt=n_bits_wt)
 
         loss += criterion(output, target).item()

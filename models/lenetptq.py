@@ -28,7 +28,10 @@ class Lenet5PTQ(nn.Module):
         self.drop1 = nn.Dropout(0.5)
         self.fc2 = PTQLinear(1024, 10)
 
-        self.layers = [self.conv1, self.conv2, self.fc1, self.fc2]
+        self.layers_dict = {'conv1': self.conv1,
+                       'conv2': self.conv2,
+                       'fc1': self.fc1,
+                       'fc2': self.fc2}
         # self.conv1 = QConv2d(in_channels=1, out_channels=32, kernel_size=(5,5), padding=2, is_quantized=self.is_quantized,
         #                      noise=noise, num_bits_weight=n_bits_wt, num_bits_act=n_bits_act)
         # self.pool1 = nn.MaxPool2d(kernel_size=(2,2), stride=2)
@@ -68,6 +71,29 @@ class Lenet5PTQ(nn.Module):
         x = self.fc2(x, is_quantized, n_bits_act, n_bits_wt, STE=STE)
 
         return x
+
+    def freeze_unfreeze_layers(self, layers_to_freeze, mode):
+        '''
+
+        :param layers_to_freeze:
+        :param mode:
+        :return:
+        '''
+        for layer in self.layers_dict.keys():
+            if layer in layers_to_freeze:
+                if mode.lower()=='freeze':
+                    self.layers_dict[layer].weight.requires_grad = False
+                    self.layers_dic[layer].bias.requires_grad = False
+                elif mode.lower()=='unfreeze':
+                    self.layers_dict[layer].weight.requires_grad = False
+                    self.layers_dic[layer].bias.requires_grad = False
+                else:
+                    print('ERROR!!!!!!!!!!!!!!!!!')
+                    print('MUST SPECIFY EITHER mode=`freeze` or mode=`unfreeze`')
+                    print('For function `freeze_unfreeze_layers`')
+                    exit()
+
+
 
 
 def lenet(**kwargs):

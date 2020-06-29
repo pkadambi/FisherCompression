@@ -91,7 +91,7 @@ if distil:
     msg += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
     print(msg)
 
-teacher_model.eval()
+    teacher_model.eval()
 
 model = models.Lenet5PTQ(is_quantized=FLAGS.is_quantized)
 model.cuda()
@@ -107,16 +107,17 @@ i=0
 
 regularizer = FLAGS.regularization
 
-def regularizer_multiplier(curr_epoch, n_epochs, offset=10):
 
+def regularizer_multiplier(curr_epoch, n_epochs, offset=10):
 
     midpt = int((n_epochs)/2)
     return 1/(1+np.exp(-0.5*(curr_epoch - midpt)))
 
-
-model_path = './tmp_models/lenet5_fashionmnist/lenet'
+model_path_ = './tmp_models/lenet5_%s' % FLAGS.dataset
+model_path = model_path_ + '/lenet'
 
 if not os.path.exists(model_path):
+    os.makedirs(model_path_, exist_ok=True)
     pause = False
     for epoch in range(n_epochs):
         if regularizer is not None:
@@ -224,7 +225,27 @@ else:
     msg += 'MODEL QUANTIZED ACC| Test Loss Quantized [%.3f]| Test Acc Quantized [%.3f]\n' % (test_loss, test_acc)
     msg += '************* END *************\n'
     print(msg)
+
 pause = False
+
+notmnist_train_data = get_dataset(name='notmnist', split='train',
+                         transform=get_transform(name='', augment=True))
+notmnist_test_data = get_dataset(name='notmnist', split='test',
+                        # transform=None)
+                        transform=get_transform(name='', augment=False))
+
+notmnist_train_loader = torch.utils.data.DataLoader(notmnist_train_data, batch_size=FLAGS.batch_size, shuffle=True,
+                                           num_workers=n_workers, pin_memory=True)
+notmnist_test_loader = torch.utils.data.DataLoader(notmnist_test_data, batch_size=FLAGS.batch_size, shuffle=True,
+                                           num_workers=n_workers, pin_memory=True)
+# pdb.set_trace()
+test_loss, test_acc = test_model_ptq(notmnist_test_loader, model, criterion, printing=False, is_quantized=False)
+msg = '************* FINAL ACCURACY *************\n'
+msg += 'LOADED MODEL WITH FP32 ACC | Test Loss [%.3f]| Test Acc [%.3f]\n' % (test_loss, test_acc)
+msg += '************* END *************\n'
+print(msg)
+
+exit()
 for epoch in range(n_reg_epochs):
     if regularizer is not None:
         mult = regularizer_multiplier(epoch, n_epochs+10)
@@ -286,6 +307,12 @@ for epoch in range(n_reg_epochs):
 
 test_loss, test_acc = test_model_ptq(test_loader, model, criterion, printing=False, is_quantized=False,
                    n_bits_wt=8, n_bits_act=8)
+
+layers_to_freeze = ['conv1', 'conv2', 'fc1']
+
+
+
+exit()
 
 for layer in model.layers:
     print(layer.qmin_wt)

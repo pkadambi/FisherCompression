@@ -34,7 +34,7 @@ tf.app.flags.DEFINE_boolean('debug', False, 'if debug mode or not, in debug mode
 tf.app.flags.DEFINE_string('optimizer', 'adam', 'optimizer to use `sgd` or `adam`')
 
 #Distillation Params
-tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
+# tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_string('fp_loadpath', './SavedModels/Lenet/FP/Run0/lenet', 'path to FP model for loading for distillation')
 tf.app.flags.DEFINE_float('alpha', 1.0, 'distillation regularizer multiplier')
 tf.app.flags.DEFINE_float('temperature', 1.0, 'temperature for distillation')
@@ -136,9 +136,6 @@ elif not FLAGS.debug:
 
 if FLAGS.loadpath is not None:
     config_str += 'Loadpath:\t' + FLAGS.loadpath + '\n'
-
-
-
 
 etaval = FLAGS.eta
 

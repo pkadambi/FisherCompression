@@ -124,10 +124,10 @@ def get_transform(name='imagenet', input_size=None,
             return scale_crop(input_size=input_size,
                               scale_size=scale_size, normalize=normalize)
 
-
-    elif name == 'mnist':
+    elif 'mnist' in name or 'MNIST' in name:
         if augment:
             return transforms.Compose([
+                # transforms.ToPILImage(),
                 transforms.RandomHorizontalFlip(),
                 # transforms.RandomCrop(input_size, pad_if_needed=True),
                 transforms.ToTensor(),
@@ -138,18 +138,6 @@ def get_transform(name='imagenet', input_size=None,
                 transforms.ToTensor()
             ])
 
-    elif name == 'fashionmnist':
-
-        if augment:
-            return transforms.Compose([
-                transforms.RandomHorizontalFlip(),
-                transforms.ToTensor(),
-                # transforms.Normalize()
-            ])
-        else:
-            return transforms.Compose([
-                transforms.ToTensor()
-            ])
     else:
         return transforms.Compose([
 
