@@ -126,10 +126,10 @@ class AdamR(Optimizer):
                     # if pause:
                     #     pdb.set_trace()
                     if regularizer=='l2':
-                        p.data.add_(gamma * group['lr'], p.pert)
+                        p.data.add_(gamma * group['lr'], -p.pert)
                     elif regularizer=='fisher' or regularizer=='gradual_fisher':
 
-                        reg_grad = p.pert * FIM_estimate
+                        reg_grad = -p.pert * FIM_estimate
                         p.data.add_(gamma * group['lr'], reg_grad)
 
 
@@ -141,7 +141,7 @@ class AdamR(Optimizer):
 
                         # inv_FIM = 1/FIM_estimate
 
-                        reg_grad = inv_FIM * p.pert
+                        reg_grad = inv_FIM * (-p.pert)
 
                         p.data.add_(gamma * group['lr'], reg_grad)
                         # diagonal loading for fisher regularizer

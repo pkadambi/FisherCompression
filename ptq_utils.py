@@ -47,12 +47,13 @@ def train_fp32_model(model, train_loader, test_loader, optimizer, n_epochs, loss
 
 
             output = model(inputs, is_quantized=False)
-            optimizer.step(regularizer=None, gamma=gamma_)
             loss = loss_criterion(output, targets)
             lossval = loss.item()
 
             optimizer.zero_grad()
             loss.backward()
+            optimizer.step(regularizer=None, gamma=gamma_)
+
             train_acc = accuracy(output, targets).item()
 
             if iter % FLAGS.record_interval==0 or i==0:

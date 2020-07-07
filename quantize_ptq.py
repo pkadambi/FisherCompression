@@ -125,7 +125,9 @@ class PTQConv2d(nn.Conv2d):
 
         #todo: min/max value
         #todo: need to set the levels correctly
-        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.5, max_value=.5, STE=STE)
+
+        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        # self.qweight = quantize(self.weight, num_bits=num_bits_wt, STE=STE)
 
         if self.has_bias:
             #todo; need to set minimum/maximum correctly
@@ -137,6 +139,7 @@ class PTQConv2d(nn.Conv2d):
         self.weight.pert = self.qweight - self.weight
 
         if is_quantized:
+            # qinput = quantize(input, num_bits=num_bits_act, min_value=-.3, max_value=.3, STE=STE)
             qinput = quantize(input, num_bits=num_bits_act, STE=STE)
             output = F.conv2d(qinput, self.qweight, self.qbias, self.stride, self.padding, self.dilation, self.groups)
 
@@ -177,12 +180,14 @@ class PTQLinear(nn.Linear):
             self.qbias = self.bias
             # self.bias.pert = self.qbias - self.bias
 
-        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.5, max_value=.5, STE=STE)
+        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        # self.qweight = quantize(self.weight, num_bits=num_bits_wt, STE=STE)
         self.weight.pert = self.qweight - self.weight
 
 
 
         if is_quantized:
+            # qinput = quantize(input, num_bits=num_bits_act, min_value=-.3, max_value=.3, STE=STE)
             qinput = quantize(input, num_bits=num_bits_act, STE=STE)
 
             output = F.linear(qinput, self.qweight, self.qbias)

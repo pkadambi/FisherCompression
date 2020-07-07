@@ -60,7 +60,7 @@ class Lenet5PTQ(nn.Module):
         x = relu(x)
 
         x = x.view(-1, 64 * 7 * 7)
-        # if is_quantized:
+        # if is_quantized:https://people.cs.umass.edu/~wallach/how_to_be_a_successful_phd_student.pdf
         #     pdb.set_trace()
         x = self.fc1(x, is_quantized, n_bits_act, n_bits_wt, STE=STE)
         x = relu(x)
@@ -83,10 +83,10 @@ class Lenet5PTQ(nn.Module):
             if layer in layers_to_freeze:
                 if mode.lower()=='freeze':
                     self.layers_dict[layer].weight.requires_grad = False
-                    self.layers_dic[layer].bias.requires_grad = False
+                    self.layers_dict[layer].bias.requires_grad = False
                 elif mode.lower()=='unfreeze':
-                    self.layers_dict[layer].weight.requires_grad = False
-                    self.layers_dic[layer].bias.requires_grad = False
+                    self.layers_dict[layer].weight.requires_grad = True
+                    self.layers_dict[layer].bias.requires_grad = True
                 else:
                     print('ERROR!!!!!!!!!!!!!!!!!')
                     print('MUST SPECIFY EITHER mode=`freeze` or mode=`unfreeze`')
@@ -98,11 +98,5 @@ class Lenet5PTQ(nn.Module):
 
 def lenet(**kwargs):
     return Lenet5PTQ()
-
-
-
-
-
-
 
 

@@ -16,6 +16,7 @@ for A-J respectively.
 Set root to point to the Train/Test folders.
 """
 
+
 # Creating a sub class of torch.utils.data.dataset.Dataset
 class notMNIST(Dataset):
 
@@ -40,32 +41,57 @@ class notMNIST(Dataset):
                 except:
                     # Some images in the dataset are damaged
                     print("File {}/{} is broken".format(folder, ims))
+        self.image_data = np.array([image for image in Images])
+        self.image_data = self.image_data.astype('uint8')
+        self.labels = np.array([label for label in Y])
 
+        import torchvision.transforms as transforms
+        import matplotlib.pyplot as plt
 
-        self.image_data = np.array([image for image in Images]).astype('float32')
-        self.labels = np.array([y for y in Y])
+        # trans = transforms.Compose([
+        #     transforms.ToPILImage(),
+        #     transforms.Grayscale(num_output_channels=1),
+        #     transforms.RandomRotation(45, fill=(0,)),
+        #     # transforms.RandomCrop(input_size, pad_if_needed=True),
+        #     transforms.ToTensor(),
+        #     # transforms.Normalize(),
+        # ])
+        # im = self.image_data[0]
+        # plt.figure()
+        # plt.imshow(im, cmap='gray')
+        # pdb.set_trace()
+        #
+        # plt.figure()
+        # imt = trans(self.image_data[0])
+        #
+        # plt.imshow(imt, cmap='gray')
 
         self.transform = transform
 
         # pdb.set_trace()
 
+    # The number of items in the dataset
     def __len__(self):
-        return len(self.image_data)
+        return int(self.image_data.shape[0])
 
+    # The Dataloader is a generator that repeatedly calls the getitem method.
+    # getitem is supposed to return (X, Y) for the specified index.
     def __getitem__(self, index):
         img = self.image_data[index]
+
+        # 8 bit images. Scale between [0,1]. This helps speed up our training
+        # img = img.reshape(28, 28) / 255.0
+        # img = Image.fromarray(img)
+        # Input for Conv2D should bee Channels x Height x Width
+
         label = self.labels[index]
 
-        # Input for Conv2D should be Channels x Height x Width
-        # 8 bit images. Scale between [0,1]. This helps speed up our training
-        img = img.reshape(28, 28) / 255.0
-
         if self.transform is not None:
-            # pdb.set_trace()
+            # pdb.set_Trace
             img = self.transform(img)
 
         return img, label
 
-n = notMNIST()
+# n = notMNIST()
 # pdb.set_trace()
 print()

@@ -136,13 +136,13 @@ if not os.path.exists(model_path):
 
         for iter, (inputs, targets) in enumerate(train_loader):
 
-            inputs = inputs.cuda()
+            inputs = inputs.cuda().float()
             targets = targets.cuda()
 
 
 
             if distil:
-                output = model(inputs, is_quantized=True)
+                output = model(inputs, is_quantized=True, n_bits_wt=FLAGS.n_bits_wt, n_bits_act=FLAGS.n_bits_act)
 
                 loss = criterion(output, targets)
 
@@ -229,11 +229,10 @@ else:
 pause = False
 
 notmnist_train_data = get_dataset(name='notmnist', split='train',
-                         transform=get_transform(name='', augment=True))
+                         transform=get_transform(name='notmnist', augment=True))
 notmnist_test_data = get_dataset(name='notmnist', split='test',
                         # transform=None)
-                        transform=get_transform(name='', augment=False))
-
+                        transform=get_transform(name='notmnist', augment=False))
 notmnist_train_loader = torch.utils.data.DataLoader(notmnist_train_data, batch_size=FLAGS.batch_size, shuffle=True,
                                            num_workers=n_workers, pin_memory=True)
 notmnist_test_loader = torch.utils.data.DataLoader(notmnist_test_data, batch_size=FLAGS.batch_size, shuffle=True,

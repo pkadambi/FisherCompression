@@ -115,6 +115,7 @@ def get_transform(name='imagenet', input_size=None,
             #     # transforms.ToPILImage(),
             #     transforms.RandomCrop(32, padding=4),
             #     transforms.RandomHorizontalFlip(),
+
             #     # transforms.RandomRotation(15),
             #     transforms.ToTensor(),
             #     transforms.Normalize(CIFAR100_TRAIN_MEAN, CIFAR100_TRAIN_STD)
@@ -124,13 +125,19 @@ def get_transform(name='imagenet', input_size=None,
             return scale_crop(input_size=input_size,
                               scale_size=scale_size, normalize=normalize)
 
-    elif 'mnist' in name or 'MNIST' in name:
+
+    elif name == 'mnist':
         if augment:
             return transforms.Compose([
-                # transforms.ToPILImage(),
-                transforms.RandomHorizontalFlip(),
-                # transforms.RandomCrop(input_size, pad_if_needed=True),
+                # transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(45, fill=(0,)),
                 transforms.ToTensor(),
+
+                # transforms.Grayscale(num_output_channels=1),
+                # transforms.RandomRotation(30, fill=(0,)),
+                # transforms.RandomRotation(30, fill=(0,)),
+                # transforms.ToTensor(),
+
                 # transforms.Normalize(),
             ])
         else:
@@ -138,6 +145,39 @@ def get_transform(name='imagenet', input_size=None,
                 transforms.ToTensor()
             ])
 
+    elif name == 'fashionmnist':
+
+        if augment:
+            return transforms.Compose([
+                transforms.RandomHorizontalFlip(),
+                transforms.RandomRotation(degrees=(-10, 10), fill=(0,)),
+                transforms.ToTensor(),
+                # transforms.Normalize()
+            ])
+        else:
+            return transforms.Compose([
+                transforms.ToTensor()
+            ])
+
+
+    elif name == 'notmnist':
+
+        if augment:
+            return transforms.Compose([
+                transforms.ToPILImage(),
+                # transforms.Grayscale(num_output_channels=1),
+
+                # #this trasnform drops accuracy to ~above 92%, Horiz flip doesnt make sanse for letters
+                # transforms.RandomHorizontalFlip(),
+
+                # transforms.RandomRotation(degrees=(-30, 30), fill=(0,)),
+                transforms.ToTensor(),
+                # transforms.Normalize()
+            ])
+        else:
+            return transforms.Compose([
+                transforms.ToTensor()
+            ])
     else:
         return transforms.Compose([
 
