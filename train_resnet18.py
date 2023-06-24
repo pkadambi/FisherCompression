@@ -196,8 +196,9 @@ if FLAGS.training_objective.lower()=='uls' or FLAGS.training_objective.lower()==
                                       alpha_val=FLAGS.smoothing_strength)
 
 else:
+    # pdb.set_trace()
     train_data = get_dataset(name=dataset, split='train', transform=get_transform(name=dataset, augment=True))
-
+# pdb.set_trace()
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
 
 train_loader = torch.utils.data.DataLoader(train_data, batch_size=batch_size, shuffle=True,
@@ -262,6 +263,7 @@ for k in range(n_runs):
                                num_classes=NUM_CLASSES)
 
     model.cuda()
+    # pdb.set_trace()_
     # optimizer = optim.Adam(model.parameters(), lr=FLAGS.lr, weight_decay= FLAGS.weight_decay)
 
     if FLAGS.optimizer=='adam':
@@ -321,6 +323,7 @@ for k in range(n_runs):
         model.load_state_dict(checkpoint['model_state_dict'])
         optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
         optimizer.param_groups[0]['lr'] = FLAGS.lr
+        # pdb.set_trace()
         # test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=etaval)
         # print(test_acc)
 
@@ -349,6 +352,7 @@ for k in range(n_runs):
         msg = '\nRestored Model Accuracy: \t %.3f' % (test_acc)
         logstr+=msg
 
+    # pdb.set_trace()
     if distillation or distillation_fisher:
         checkpoint = torch.load(FLAGS.fp_loadpath)
         print('Restoring teacher model from:\t' + FLAGS.fp_loadpath)
@@ -361,13 +365,105 @@ for k in range(n_runs):
             param.requires_grad = False
 
         test_loss, test_acc = test_model(test_loader, teacher_model, xentropy_criterion, printing=False, eta=etaval)
-        msg += '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
+        msg = '\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc)
         logstr += msg
 
     if FLAGS.eval:
         print(msg)
         exit('Finished evaluating model')
 
+    # pdb.set_trace()
+    teq1ent = model_output_distribution(test_loader, teacher_model, eta=None, temperature=1)
+    # pdb.set_trace()
+    # teq2ent = model_output_distribution(test_loader, teacher_model, eta=None, temperature=2)
+    # teq3ent = model_output_distribution(test_loader, teacher_model, eta=None, temperature=3)
+    # teq4ent = model_output_distribution(test_loader, teacher_model, eta=None, temperature=4)
+
+
+    nbins_ent = 200
+    temperatures = np.arange(1, 10, .2)
+    # pdb.set_trace()
+    entropy_hist_train = np.zeros([len(temperatures), nbins_ent])
+    entropy_hist_test = np.zeros([len(temperatures), nbins_ent])
+
+    for kk, temp in enumerate(temperatures):
+        pdb.set_trace()
+        print('Evaluating Temp', temp)
+        _tempent = model_output_distribution(train_loader, teacher_model, eta=None, temperature=temp)
+        # entropy_distributions[kk,:] = _tempent
+        hist = np.histogram(_tempent, bins=nbins_ent, range=[0, 2.4], density=True)
+        entropy_hist_train[kk, :] = hist[0]
+
+    pdb.set_trace()
+    for kk, temp in enumerate(temperatures):
+        pdb.set_trace()
+        print('Evaluating Temp', temp)
+        _tempent = model_output_distribution(train_loader, teacher_model, eta=None, temperature=temp)
+        # entropy_distributions[kk,:] = _tempent
+        hist = np.histogram(_tempent, bins=nbins_ent, range=[0, 2.4], density=True)
+        entropy_hist_test[kk, :] = hist[0]
+
+    entropy_hist_train = entropy_hist_train.T
+    entropy_hist_test = entropy_hist_test.T
+
+    pdb.set_trace()
+    import pickle as pkl
+    # temps_vs_ents = {}
+    # temps_vs_ents['temp'] = temperatures
+    # temps_vs_ents['entropy_bins'] = hist[1][:-1]
+    # temps_vs_ents['train_set_entropies'] = entropy_hist_train
+    # temps_vs_ents['test_set_entropies'] = entropy_hist_test
+    # # pkl.dump(temps_vs_ents, './results/distillation_temp_')
+    #
+    # pdb.set_trace()
+    # plt.figure()
+    # # plt.matshow()
+    #
+    # plt.xlabel()
+    # plt.ylabel()
+    #
+    # fig = plt.figure()
+    # ax = fig.add_subplot(111)
+    # cax = ax.matshow(tr_ent.T, interpolation='nearest')
+    # fig.colorbar(cax)
+    #
+    # fig, ax = plt.subplots(1)
+    # ax.imshow(np.flipud(np.log10(tr_ent.T)), interpolation='nearest', extent=[1, 10, 0, 2.4])
+    # ax.set_ylabel('Entropy')
+    # ax.set_xlabel('Temperature')
+    # ax.set_title('Log-Histogram (color) of \nOutput Distribution (TrainData) Renset18')
+    # fig.colorbar(ax)
+    # plt.show()
+    #
+    # plt.figure()
+    # plt.imshow(np.flipud(np.log10(tr_ent.T)), interpolation='nearest', extent=[1, 10, 0, 2.4])
+    # plt.ylabel('Entropy')
+    # plt.xlabel('Temperature')
+    # plt.title('Entropy of Samples Teacher Softened \nOutput Distribution (Train)')
+    # plt.colorbar()
+    # plt.show()
+    #
+    # plt.figure()
+    # plt.imshow(np.flipud(np.log10(te_ent.T)), interpolation='nearest', extent=[1, 10, 0, 2.4])
+    # plt.ylabel('Entropy')
+    # plt.xlabel('Temperature')
+    # plt.title('Entropy of Samples Teacher Softened \nOutput Distribution (Test)')
+    # plt.colorbar()
+    # plt.show()
+
+    # ax.set_xticklabels(['%.2f'%_ for _ in ent_bins])
+    # ax.set_yticklabels(['%.2f'%_ for _ in temp])
+
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    cax = ax.matshow(data, interpolation='nearest')
+    fig.colorbar(cax)
+
+    ax.set_xlabel('Entropy of Softmax Probabilities')
+    ax.set_ylabel('Temperature')
+    ax.set_title('Effect of Distillation Temperature on Softmax Probabilities (Test Data)')
+    # ax.set_xticklabels([''] + alpha)
+    # ax.set_yticklabels([''] + alpha)
     config_file.write(logstr)
 
     print(logstr)
@@ -417,7 +513,7 @@ for k in range(n_runs):
 
             inputs = inputs.cuda()
             targets = targets.cuda()
-
+            pdb.set_trace()
             output = model(inputs)
             loss = xentropy_criterion(output, targets)
 
@@ -513,8 +609,7 @@ for k in range(n_runs):
 
 
             if gradual_fisher and iter>2:
-                gamma_ = regularizer_multiplier(epoch-int(n_epochs/2)-50, n_epochs)
-
+                gamma_ = regularizer_multiplier(epoch-int(n_epochs/2) - 50, n_epochs)
             else:
                 gamma_ =0
 

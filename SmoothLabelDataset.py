@@ -153,23 +153,23 @@ class SmoothedLabelDataset(data.Dataset):
     def compute_uls_labels(self):
         pass
 
-membfile = './SLS_param/CIFAR10TrainClusterLoc.npy'
-alphas_file_1 = './SLS_param/cifar10_myregularizer_disturbing288.npy'
-train_data = SmoothedLabelDataset(split='train', dataset='cifar10', smoothing_method='ULS', alpha_val=.1)
-get_dataset(name='train', split='test', transform=get_transform(name='cifar10', augment=True))
-
-train_loader = torch.utils.data.DataLoader(train_data, batch_size=128, shuffle=True,
-                                           num_workers=4, pin_memory=True)
-
-
-# for iter, (inputs, targets, smoothed_target) in enumerate(train_loader):
-#     print(iter)
-#     print(inputs)
-#     print(targets)
-#     print(smoothed_target)
-#     print()
-
-
-
-print()
+# membfile = './SLS_param/CIFAR10TrainClusterLoc.npy'
+# alphas_file_1 = './SLS_param/cifar10_myregularizer_disturbing288.npy'
+# train_data = SmoothedLabelDataset(split='train', dataset='cifar10', smoothing_method='ULS', alpha_val=.1)
+# get_dataset(name='train', split='test', transform=get_transform(name='cifar10', augment=True))
+#
+# train_loader = torch.utils.data.DataLoader(train_data, batch_size=128, shuffle=True,
+#                                            num_workers=4, pin_memory=True)
+#
+#
+# # for iter, (inputs, targets, smoothed_target) in enumerate(train_loader):
+# #     print(iter)
+# #     print(inputs)
+# #     print(targets)
+# #     print(smoothed_target)
+# #     print()
+#
+#
+#
+# print()
 

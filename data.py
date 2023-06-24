@@ -60,5 +60,5 @@ def get_dataset(name, split='train', transform=None,
                         transform = transform)
 
     else:
-        exit('ERROR!! Please specify valid dataset name!')
-
+        print('ERROR!! Please specify valid dataset name!')
+        raise Exception

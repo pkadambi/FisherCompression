@@ -28,12 +28,18 @@ class UniformQuantize(InplaceFunction):
 
         # pdb.set_trace()
         if min_value is None:
-            min_value = y.min(-1)[0].mean(-1)  # C
+            # ctx.min_value = y.min(-1)[0].mean(-1)  # C
+            min_value = y.min() # C
             # min_value = float(input.view(input.size(0), -1).min(-1)[0].mean())
+        # else:
+        #     ctx.min_value = min_value
 
         if max_value is None:
             # max_value = float(input.view(input.size(0), -1).max(-1)[0].mean())
-            max_value = y.max(-1)[0].mean(-1)  # C
+            max_value = y.max()  # C
+            # ctx.max_value = y.max(-1)[0].mean(-1)  # C
+        # else:
+        #     ctx.max_value = max_value
 
         ctx.noise = noise
 
@@ -47,13 +53,13 @@ class UniformQuantize(InplaceFunction):
             qmin = 0.
             qmax = 2. ** num_bits - 1.
 
-            scale = (max_value - min_value) / (qmax - qmin)
+            scale = (ctx.max_value - ctx.min_value) / (qmax - qmin)
 
             scale = max(scale, 1e-8)
 
             if FLAGS.enforce_zero:
                 # TODO: Maybe delete this since this case is never used???
-                initial_zero_point = qmin - min_value / scale
+                initial_zero_point = qmin - ctx.min_value / scale
                 zero_point = 0.
 
                 # make zero exactly represented
@@ -70,17 +76,17 @@ class UniformQuantize(InplaceFunction):
                 q_weight = (q_weight / scale) + zero_point
 
             else:
-                q_weight = (q_weight - min_value) / scale + qmin
+                q_weight = (q_weight - ctx.min_value) / scale + qmin
 
             q_weight.clamp_(qmin, qmax).round_()  # quantize
-            ctx.min_value = min_value
-            ctx.max_value = max_value
+            # ctx.min_value = min_value
+            # ctx.max_value = max_value
 
             # TODO: figure out how this works
             if FLAGS.enforce_zero:
                 q_weight.add_(-zero_point).mul_(scale)  # dequantize
             else:
-                q_weight.add_(-qmin).mul_(scale).add_(min_value)  # dequantize
+                q_weight.add_(-qmin).mul_(scale).add_(ctx.min_value)  # dequantize
 
             if out_half and num_bits <= 16:
                 q_weight = q_weight.half()
@@ -102,31 +108,67 @@ class UniformQuantize(InplaceFunction):
         else:
             return None, None, None, None, None, None, None, None, None
 
+class Quantize_EMA(nn.Module):
+    """
+
+    This class quantizes an input to a layer by keeping a running mean of the min and max value
+
+    """
+
+    #TODO: add an argument here where you can select between using an absolute minimum and a percentile
+
+    #TODO: This slows down training by a lot, figure out why
+    def __init__(self, momentum=0.1):
+        super(Quantize_EMA, self).__init__()
+        self.register_buffer('running_min', torch.zeros(1))
+        self.register_buffer('running_max', torch.zeros(1))
+        self.momentum = momentum
+
+    def forward(self, input, num_bits, STE=False):
+        # print(self.training)
+        if self.training:
+            _input = input.view(input.shape[0], -1)
+            min_value = _input.min()
+            max_value = _input.max()
+
+            self.running_min.mul_(self.momentum).add_(min_value * (1 - self.momentum))
+            self.running_max.mul_(self.momentum).add_(max_value * (1 - self.momentum))
+            # print('here')
+        else:
+            min_value = self.running_min
+            max_value = self.running_max
+
+        # return quantize(input, self.num_bits, min_value=float(min_value), max_value=float(max_value), num_chunks=16)
+        return quantize(input, num_bits=num_bits, min_value=float(self.running_min), max_value=float(self.running_max),
+                        num_chunks=16, STE=STE)
+
 
 class PTQConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1, padding=0,
                  dilation=1, groups=1, bias=True, biprecision=False):
-
-        self.has_bias = bias
-
         super(PTQConv2d, self).__init__(in_channels, out_channels, kernel_size, stride, padding,
                                         dilation, groups, bias)
-
-        self.stride = stride
-        self.padding = padding
+        self.biprecision = biprecision
+        self.has_bias = bias
         self.qmin_wt = None
         self.qmax_wt = None
         self.qbias = None
+        self.CALIBRATION=False
+        self.quantize_input_ema = Quantize_EMA()
+
+        # todo: min/max value
+        # todo: need to set the levels correctly
+
+
 
     def forward(self, input, is_quantized=False, num_bits_act=8, num_bits_wt=8, STE=False):
         if is_quantized:
             if self.qmin_wt or self.qmin_wt is None:
                 self.set_quantizer_limits()
 
-        #todo: min/max value
-        #todo: need to set the levels correctly
-
-        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        # self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=self.qmin_wt,
+                                max_value=self.qmax_wt, STE=STE)
         # self.qweight = quantize(self.weight, num_bits=num_bits_wt, STE=STE)
 
         if self.has_bias:
@@ -138,14 +180,21 @@ class PTQConv2d(nn.Conv2d):
 
         self.weight.pert = self.qweight - self.weight
 
+        if self.CALIBRATION:
+            _qinput = self.quantize_input_ema(input, num_bits=num_bits_act, STE=STE)
+
         if is_quantized:
             # qinput = quantize(input, num_bits=num_bits_act, min_value=-.3, max_value=.3, STE=STE)
-            qinput = quantize(input, num_bits=num_bits_act, STE=STE)
-            output = F.conv2d(qinput, self.qweight, self.qbias, self.stride, self.padding, self.dilation, self.groups)
-
+            if self.CALIBRATION:
+                qinput = _qinput
+            else:
+                qinput = quantize(input, num_bits=num_bits_act, STE=STE)
+            # qinput = input
+            output = F.conv2d(input=qinput, weight=self.qweight, bias=self.qbias, stride=self.stride,
+                              padding=self.padding, dilation=self.dilation, groups=self.groups)
         else:
             output = F.conv2d(input=input, weight=self.weight, bias=self.bias, stride=self.stride,
-                              padding=self.padding, groups=self.groups)
+                              padding=self.padding, dilation=self.dilation, groups=self.groups)
         return output
 
 
@@ -159,16 +208,24 @@ class PTQConv2d(nn.Conv2d):
         else:
             self.qmin_wt = qmin
 
+    def enable_calibration(self):
+        self.CALIBRATION = True
+
+    def disable_calibration(self):
+        self.CALIBRATION = False
+
+
 class PTQLinear(nn.Linear):
     def __init__(self, in_features, out_features, bias=True):
-        self.has_bias = bias
         super(PTQLinear, self).__init__(in_features, out_features, bias)
+        self.has_bias = bias
 
         #TODO: Add the flaggs into this
         self.qmin_wt = None
         self.qmax_wt = None
         self.qbias = None
-
+        self.CALIBRATION=False
+        self.quantize_input_ema = Quantize_EMA()
 
     def forward(self, input, is_quantized=False, num_bits_act=8, num_bits_wt=8, STE=False):
         if is_quantized:
@@ -180,15 +237,23 @@ class PTQLinear(nn.Linear):
             self.qbias = self.bias
             # self.bias.pert = self.qbias - self.bias
 
-        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        # self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=-.3, max_value=.3, STE=STE)
+        self.qweight = quantize(self.weight, num_bits=num_bits_wt, min_value=self.qmin_wt,
+                                max_value=self.qmax_wt, STE=STE)
         # self.qweight = quantize(self.weight, num_bits=num_bits_wt, STE=STE)
         self.weight.pert = self.qweight - self.weight
 
-
+        if self.CALIBRATION:
+            _qinput = self.quantize_input_ema(input, num_bits=num_bits_act, STE=STE)
 
         if is_quantized:
             # qinput = quantize(input, num_bits=num_bits_act, min_value=-.3, max_value=.3, STE=STE)
-            qinput = quantize(input, num_bits=num_bits_act, STE=STE)
+            if self.CALIBRATION:
+                qinput = _qinput
+
+            else:
+                qinput = quantize(input, num_bits=num_bits_act, STE=STE)
+            # qinput = input
 
             output = F.linear(qinput, self.qweight, self.qbias)
         else:
@@ -208,3 +273,8 @@ class PTQLinear(nn.Linear):
         else:
             self.qmin_wt = qmin
 
+    def enable_calibration(self):
+        self.CALIBRATION = True
+
+    def disable_calibration(self):
+        self.CALIBRATION = False

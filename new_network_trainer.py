@@ -224,84 +224,89 @@ elif FLAGS.optimizer == 'adamr':
         cot_optimizer = AdamR(model.parameters(), lr=FLAGS.lr)
 i=0
 cot_ = []
-for epoch in range(n_epochs):
-    model.train()
-    for iter, (inputs, targets) in enumerate(train_loader):
+if os.path.exists():
+    for epoch in range(n_epochs):
+        model.train()
+        for iter, (inputs, targets) in enumerate(train_loader):
 
-        inputs = inputs.cuda()
-        targets = targets.cuda()
+            inputs = inputs.cuda()
+            targets = targets.cuda()
 
-        output = model(inputs)
-        # targets_oh = torch.nn.functional.one_hot(targets)
-        cot = cot_loss(output, targets)
+            output = model(inputs)
+            # targets_oh = torch.nn.functional.one_hot(targets)
+            cot = cot_loss(output, targets)
 
-        mult = regularizer_multiplier(epoch, n_epochs+10)
-        loss =  criterion(output, targets) #+ 1. *  cot #+  cot_loss(output, targets)
+            mult = regularizer_multiplier(epoch, n_epochs+10)
+            loss =  criterion(output, targets) #+ 1. *  cot #+  cot_loss(output, targets)
 
-        optimizer.zero_grad()
-
-        loss.backward(retain_graph=True)
-        optimizer.step()
-
-        lossval = loss.item()
-
-        # for group in optimizer.param_groups:
-        #     for p in group['params']:
-        #         if hasattr(p, 'pert'):
-        #             if FLAGS.fisher_method == 'adam':
-        #                 p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
-        #             elif FLAGS.fisher_method == 'g2':
-        #                 p.fisher = p.grad * p.grad * FLAGS.batch_size
-        #
-        #             p.inv_FIM = 1 / (p.fisher + 1e-7)
-        #             p.inv_FIM = p.inv_FIM * 1e-7
-        #
-        #
-        # perts = []
-        # if FLAGS.is_quantized:
-        #     for l, (name, layer) in enumerate(model.named_modules()):
-        #         if 'conv' in name or 'fc' in name:
-        #             with torch.no_grad():
-        #                 if hasattr(layer, 'qweight'):
-        #                     pertw = layer.weight - layer.qweight
-        #                     layer.weight.pert = pertw
-        #                     perts.append(pertw)
-
-        cot_.append(cot.item())
-
-        if COT:
             optimizer.zero_grad()
-            outputs = model(inputs)
-            loss = 0. * cot_loss(output, targets)
-            cot_optimizer.zero_grad()
-            loss.backward()
-            cot_optimizer.step()
-            cot_lossval = loss.item()
-            cot_.append(cot_lossval)
 
-        train_acc = accuracy(output, targets).item()
+            loss.backward(retain_graph=True)
+            optimizer.step()
 
-        if i % record_interval == 0 or i == 0:
-            msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]|' % (i, lossval, train_acc)
+            lossval = loss.item()
+
+            # for group in optimizer.param_groups:
+            #     for p in group['params']:
+            #         if hasattr(p, 'pert'):
+            #             if FLAGS.fisher_method == 'adam':
+            #                 p.fisher = optimizer.state[p]['exp_avg_sq'] * FLAGS.batch_size
+            #             elif FLAGS.fisher_method == 'g2':
+            #                 p.fisher = p.grad * p.grad * FLAGS.batch_size
+            #
+            #             p.inv_FIM = 1 / (p.fisher + 1e-7)
+            #             p.inv_FIM = p.inv_FIM * 1e-7
+            #
+            #
+            # perts = []
+            # if FLAGS.is_quantized:
+            #     for l, (name, layer) in enumerate(model.named_modules()):
+            #         if 'conv' in name or 'fc' in name:
+            #             with torch.no_grad():
+            #                 if hasattr(layer, 'qweight'):
+            #                     pertw = layer.weight - layer.qweight
+            #                     layer.weight.pert = pertw
+            #                     perts.append(pertw)
+
+            cot_.append(cot.item())
+
+            if COT:
+                optimizer.zero_grad()
+                outputs = model(inputs)
+                loss = 0. * cot_loss(output, targets)
+                cot_optimizer.zero_grad()
+                loss.backward()
+                cot_optimizer.step()
+                cot_lossval = loss.item()
+                cot_.append(cot_lossval)
+
+            train_acc = accuracy(output, targets).item()
+
+            if i % record_interval == 0 or i == 0:
+                msg = 'Step [%d] | Loss [%.4f] | Acc [%.3f]|' % (i, lossval, train_acc)
+                if COT:
+                    msg += '| COT Loss [%.3f]' % cot_lossval
+
+                print(msg)
+            i+=1
+
+        if epoch % 1 == 0 or epoch == n_epochs - 1:
+            msg = '\n*** TESTING ***\n'
+            test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
+
+
+            msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| | LR [%.5f]\n' % (
+                epoch, test_loss, test_acc, optimizer.param_groups[0]['lr'])
+            print('Multiplier: '+ str(mult))
+
             if COT:
                 msg += '| COT Loss [%.3f]' % cot_lossval
-
             print(msg)
-        i+=1
-
-    if epoch % 1 == 0 or epoch == n_epochs - 1:
-        msg = '\n*** TESTING ***\n'
-        test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
-
-
-        msg += 'End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| | LR [%.5f]\n' % (
-            epoch, test_loss, test_acc, optimizer.param_groups[0]['lr'])
-        print('Multiplier: '+ str(mult))
-
-        if COT:
-            msg += '| COT Loss [%.3f]' % cot_lossval
-        print(msg)
-
+    torch.save({
+        'epoch': epoch + 1,
+        'model_state_dict': model.state_dict(),
+        'optimizer_state_dict': optimizer.state_dict(),
+        'loss': loss_fn}, savepath)
 print('\n*** TESTING ***\n')
 # test_loss, test_acc = test_model(test_loader, model, criterion, printing=False, eta=0.)
 # print('End Epoch [%d]| Test Loss [%.3f]| Test Acc [%.3f]| LR [%.3f]' %
@@ -322,22 +327,42 @@ msg += '************* END *************\n'
 print(msg)
 
 
+pdb.set_trace()
+from nonparametrics import *
+import torch.nn.functional as F
 
-# import torch.nn.functional as F
-# T=4
-# clusters = np.readtxt('./fashionmnist_clusters.txt', fmt='%d')
-# n_clusters =
-# cluster_entropy_baseline =
-# for i in range(60000):
-#
-# teacher_soft_logits = F.softmax(teacher_logits / T, dim=1)
-#
-#
-# pdb.set_trace()
-# # if COT:
-# plt.plot(cot_)
-# plt.grid()
-# plt.show()
+npdata = np.vstack([tr[0].numpy().reshape(1,-1) for tr in train_data])
+labels = np.array([tr[1] for tr in train_data])
+
+n_clusters = 64
+temperature=4
+# cluster_memberships = np.readtxt('./fashionmnist_clusters.txt', fmt='%d')
+cluster_memberships = np.readtxt('./fashionmnist_clusters_gmm64_pca256.txt', fmt='%d')
+myclustered_data, myclustered_labels = split_data_into_clusters(npdata, labels, cluster_memberships)
+
+
+
+avg_entropy_per_cluster, per_sample_entropy_per_cluster = \
+    compute_entropy_for_clusters(myclustered_data, teacher_model=model, temperature=temperature)
+
+plt.figure()
+for ii in range(len(per_sample_entropy_per_cluster)):
+    plt.hist(np.log(per_sample_entropy_per_cluster[ii]), bins=15)
+plt.title('Avg entropy based on my clusters')
+# cluster_entropy_baseline = to calculate from the sls method
+import tqdm
+# for i in tqdm.tqdm(range(60000)):
+#     teacher_logits = model(input)
+#     teacher_soft_logits = F.softmax(teacher_logits / temperature, dim=1)
+#     teacher_soft_logits = teacher_soft_logits.detach().cpu().numpy()
+    # sample_entropies[startind:endind] = stats.entropy(teacher_soft_logits.T)
+
+pdb.set_trace()
+# if COT:
+plt.plot(cot_)
+plt.grid()
+plt.show()
+pdb.set_trace()
 # #test the model
 #
 

@@ -213,5 +213,5 @@ def resnet(**kwargs):
     elif dataset == 'cifar10':
         num_classes = num_classes or 10
         depth = depth or 18 #56
-        return ResNet_cifar10(num_classes=num_classes,
+        return ResNet_cifar10_full_precision(num_classes=num_classes,
                               block=BasicBlock, depth=depth)

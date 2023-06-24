@@ -3,9 +3,9 @@ from torch.optim.optimizer import Optimizer, required
 import tensorflow as tf
 
 FLAGS = tf.app.flags.FLAGS
-gamma = FLAGS.gamma
+gamma_target = FLAGS.gamma
+gamma = gamma_target
 diag_load = FLAGS.diag_load_const
-
 
 class SGDR(Optimizer):
     r"""Implements stochastic gradient descent (optionally with momentum).
@@ -113,43 +113,68 @@ class SGDR(Optimizer):
                     else:
                         d_p = buf
 
-                p.data.add_(-group['lr'], d_p)
+                FIM_estimate = exp_avg_sq + diag_load
 
-                if hasattr(p, 'pert') and gamma>0.:
-
+                if hasattr(p, 'pert') and gamma==gamma_target:
+                    # if pause:
+                    #     pdb.set_trace()
                     if regularizer=='l2':
-                        p.data.add_(-gamma * group['lr'], p.pert)
+                        p.data.add_(gamma * group['lr'], -p.pert)
+                    elif regularizer=='fisher' or regularizer=='gradual_fisher':
 
-                    elif 'fisher' in regularizer:
-                        # import pdb
-                        # pdb.set_trace()
-                        # reg_grad = p.pert * (exp_avg_sq/torch.max(exp_avg_sq))
+                        reg_grad = -p.pert * FIM_estimate
+                        p.data.add_(gamma * group['lr'], reg_grad)
 
-                        if FLAGS.layerwise_fisher:
-                            p.fisher = p.fisher / torch.max(p.fisher)
-                        reg_grad = p.pert * p.fisher
-                        reg_val = reg_val + torch.sum(p.pert * reg_grad)
-
-                        # reg_grad = reg_grad.clamp(-.1, .1)
-
-                        p.data.add_(-gamma * group['lr'], reg_grad)
-
-                        #diagonal loading for fisher regularizer
-                        p.data.add_(-gamma * diag_load * group['lr'], p.pert)
 
                     elif regularizer == 'inv_fisher':
-                        # FIM = exp_avg_sq
-                        # # FIM = p.grad.data * p.grad.data
-                        #
-                        # inv_FIM = 1 / (FIM + 1e-7)
-                        # inv_FIM = inv_FIM * 1e-7
-                        reg_grad = p.inv_FIM * p.pert
-                        reg_val = reg_val + torch.sum(p.pert * reg_grad)
+                        # pdb.set_trace()
+                        inv_FIM = 1 / (FIM_estimate)
+                        inv_FIM = inv_FIM * diag_load
 
-                        p.data.add_(-gamma * group['lr'],  reg_grad)
 
+                        # inv_FIM = 1/FIM_estimate
+
+                        reg_grad = inv_FIM * (-p.pert)
+
+                        p.data.add_(gamma * group['lr'], reg_grad)
                         # diagonal loading for fisher regularizer
-                        # p.data.add_(-gamma * diag_load * group['lr'], p.pert)
+                p.data.add_(-group['lr'], d_p)
+
+                # if hasattr(p, 'pert') and gamma>0.:
+                #
+                #     if regularizer=='l2':
+                #         p.data.add_(-gamma * group['lr'], p.pert)
+                #
+                #     elif 'fisher' in regularizer:
+                #         # import pdb
+                #         # pdb.set_trace()
+                #         # reg_grad = p.pert * (exp_avg_sq/torch.max(exp_avg_sq))
+                #
+                #         if FLAGS.layerwise_fisher:
+                #             p.fisher = p.fisher / torch.max(p.fisher)
+                #         reg_grad = p.pert * p.fisher
+                #         reg_val = reg_val + torch.sum(p.pert * reg_grad)
+                #
+                #         # reg_grad = reg_grad.clamp(-.1, .1)
+                #
+                #         p.data.add_(-gamma * group['lr'], reg_grad)
+                #
+                #         #diagonal loading for fisher regularizer
+                #         p.data.add_(-gamma * diag_load * group['lr'], p.pert)
+                #
+                #     elif regularizer == 'inv_fisher':
+                #         # FIM = exp_avg_sq
+                #         # # FIM = p.grad.data * p.grad.data
+                #         #
+                #         # inv_FIM = 1 / (FIM + 1e-7)
+                #         # inv_FIM = inv_FIM * 1e-7
+                #         reg_grad = p.inv_FIM * p.pert
+                #         reg_val = reg_val + torch.sum(p.pert * reg_grad)
+                #
+                #         p.data.add_(-gamma * group['lr'],  reg_grad)
+                #
+                #         # diagonal loading for fisher regularizer
+                #         # p.data.add_(-gamma * diag_load * group['lr'], p.pert)
 
         # return loss
 

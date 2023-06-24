@@ -1,4 +1,4 @@
-function [det_vals] = parse_results(results_dir, n_runs, model_names)
+function [det_vals] = parse_results(results_dir, n_runs, model_names, metric)
 
     data_dirs = strcat(results_dir,'/%s/%s.txt');
 
@@ -24,7 +24,7 @@ function [det_vals] = parse_results(results_dir, n_runs, model_names)
             disp(datafile)
             loss_data = importdata(datafile);
             loss_data = loss_data(:);
-            det_values(j+1,k)=poly_reg(X, Y, loss_data, THRESHOLD);
+            det_values(j+1,k)=poly_reg(X, Y, loss_data, THRESHOLD, metric);
 
         end
 

@@ -85,7 +85,6 @@ source_train_loader = torch.utils.data.DataLoader(source_train_data, batch_size=
                                            num_workers=n_workers, pin_memory=True)
 source_test_loader = torch.utils.data.DataLoader(source_test_data, batch_size=FLAGS.batch_size, shuffle=True,
                                            num_workers=n_workers, pin_memory=True)
-# pdb.set_trace()
 if FLAGS.target_dataset == FLAGS.source_dataset:
     print('Source and target dataset are same!')
 
@@ -145,8 +144,8 @@ for run_number in range(n_runs):
 
     if not os.path.isfile(model_path):
         os.makedirs(model_path_, exist_ok=True)
-        train_fp32_model(model=model, train_loader=source_train_loader, test_loader=source_test_loader,
-                         optimizer=optimizer, n_epochs=n_epochs, loss_criterion=criterion,
+        train_fp32_model_lenet(model=model, train_loader=source_train_loader, test_loader=source_test_loader,
+                         optimizer=optimizer, n_epochs=n_epochs, loss_fn=criterion,
                          savepath=model_path)
     else:
         checkpoint = torch.load(model_path)
@@ -194,8 +193,8 @@ for run_number in range(n_runs):
         if not os.path.exists(target_model_path_):
             os.makedirs(target_model_path_, exist_ok=True)
 
-            train_fp32_model(model=model, train_loader=target_train_loader, test_loader=target_test_loader,
-                             optimizer=optimizer, n_epochs=finetune_epochs, loss_criterion=criterion,
+            train_fp32_model_lenet(model=model, train_loader=target_train_loader, test_loader=target_test_loader,
+                             optimizer=optimizer, n_epochs=finetune_epochs, loss_fn=criterion,
                              savepath=target_model_path)
         else:
             checkpoint = torch.load(target_model_path)

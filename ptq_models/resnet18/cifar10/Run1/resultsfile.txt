@@ -1,0 +1,39 @@
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.227]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.865]| Test Acc Quantized [81.710]
+************* END *************
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.232]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.589]| Test Acc Quantized [85.820]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.615]| Test Acc Quantized [85.300]
+************* END *************
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.227]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.593]| Test Acc Quantized [85.920]
+************* END *************
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.228]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.601]| Test Acc Quantized [85.840]
+************* END *************
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.230]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.594]| Test Acc Quantized [85.610]
+************* END *************
+************* Train Accuracy FP32 on Source Dataset: cifar10*************
+TrainedMODEL WITH FP32 ACC | Test Loss [0.238]| Test Acc [94.770]
+************* END *************
+			 TARGET BIT WIDTH 4bA/4bW************* Trained Accuracy (QUANTIZED) on source dataset: cifar10*************
+Trained QUANTIZED ACC| Test Loss Quantized [0.597]| Test Acc Quantized [86.150]
+************* END *************

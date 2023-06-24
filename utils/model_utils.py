@@ -171,7 +171,7 @@ def test_model_ptq(data_loader, model, criterion, printing=True, topk=1, is_quan
     n_test = 0.
     n_correct = 0.
     loss = 0.
-
+    # pdb.set_trace()
     for iter, (inputs, target) in enumerate(data_loader):
         n_batch = inputs.size()[0]
         # print(iter)
@@ -195,8 +195,58 @@ def test_model_ptq(data_loader, model, criterion, printing=True, topk=1, is_quan
 
     # Revert model to training mode before exiting
     model.train()
+    # pdb.set_trace()
 
     return test_loss, test_accuracy
+
+def model_output_distribution(data_loader, model, eta=None, temperature=1):
+    model.eval()
+    from torch.distributions import Categorical
+
+    # print('Mean Shannon Entropy: ' )
+    # print('Median Shannon Entropy: ')
+    # print('')
+
+
+    shannon_entropies = []
+    n_test = 0.
+    n_correct = 0.
+    loss = 0.
+
+    sfmx = torch.nn.Softmax()
+
+
+    for iter, (inputs, target) in enumerate(data_loader):
+        n_batch = inputs.size()[0]
+
+        inputs = inputs.cuda()
+        target = target.cuda()
+
+        if eta is not None:
+            output = model(inputs, eta=eta)
+        else:
+            output = model(inputs)
+
+
+        temperature_probs = sfmx(output.detach().cpu() / temperature)
+        # pdb.set_trace()
+        # loss += loss_criterion(output, target).item()
+        _shannonent = Categorical(probs = temperature_probs).entropy()
+        # pdb.set_trace()
+        shannon_entropies+=_shannonent
+        n_correct += accuracy(output, target).item() * n_batch / 100.
+        n_test += n_batch
+
+    test_accuracy = 100 * n_correct / n_test
+    test_loss = 128 * loss / n_test
+
+    print('Test Accuracy %.3f' % test_accuracy)
+    print('Test Loss %.3f' % test_loss)
+
+    return np.array(shannon_entropies)
+
+
+
 
 
 def test_model(data_loader, model, criterion, printing=True, eta=None, teacher_model=None, topk=1):

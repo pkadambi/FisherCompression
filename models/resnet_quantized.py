@@ -1,3 +1,4 @@
+import pdb
 import torch.nn as nn
 import torchvision.transforms as transforms
 import math
@@ -156,6 +157,7 @@ class ResNet(nn.Module):
         return nn.Sequential(*layers)
 
     def forward(self, x, eta=0.):
+        # pdb.set_trace()
         x = self.conv1(x, eta)
         x = self.bn1(x)
         x = self.activation(x)
@@ -215,16 +217,17 @@ class ResNet_cifar10(ResNet):
             bn_pos='post_res'
             # print('IM HERE')
             # exit()
-
+        import pdb
         self.maxpool = lambda x: x
-        self.layer1 = self._make_layer(block, 16 * self.inflate, n, bn_pos=bn_pos)
-        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2, bn_pos=bn_pos)
-        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2, bn_pos=bn_pos)
+        # pdb.set_trace()
+        self.layer1 = self._make_layer(block, 16 * self.inflate, n, bn_pos=bn_pos) # inplanes32 --> inplanes32
+        self.layer2 = self._make_layer(block, 32 * self.inflate, n, stride=2, bn_pos=bn_pos) # inplanes32 --> inplanes64
+        self.layer3 = self._make_layer(block, 64 * self.inflate, n, stride=2, bn_pos=bn_pos) # inplanes64 --> inplanes128
 
         if FLAGS.activation=='tanh':
             self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2, bn_pos=None)
         else:
-            self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2, bn_pos=bn_pos)
+            self.layer4 = self._make_layer(block, 128 * self.inflate, n, stride=2, bn_pos=bn_pos) # inplanes128 --> inplanes256
 
         self.avgpool = nn.AvgPool2d(4)
         self.fc = QLinear(128 * self.inflate, num_classes, is_quantized=self.is_quantized, noise=self.noise,

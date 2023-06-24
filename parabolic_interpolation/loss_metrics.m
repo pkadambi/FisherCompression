@@ -40,7 +40,8 @@ for ii = 1:n_runs
     detval = double(det(hessians{ii}));
     dets = [dets detval];
     disp(det(hessians{ii}))
-    subplot(n_runs, 1, ii)
+%     subplot(n_runs, 1, ii)
+    figure()
     plot(f, [X(:), Y(:)],  Z )
     title(strcat(labels{ii}, strcat(sprintf(', Clipping Loss to Max Value of 3, \nHess Det: '), num2str(double(det(hessians{ii}))))))
 

@@ -121,6 +121,56 @@ def dp_div(A, B, method='1nn'):
 
     return Dp, Cij
 
+def calculate_asymptotic_dp():
+
+    pass
+
+def compute_entropy_for_clusters(data_clusters, teacher_model, temperature):
+    import tqdm
+    import torch
+    import scipy.stats as stats
+    import torch.nn.functional as F
+    #loop through clusters
+
+    teacher_model.eval()
+    teacher_model.cuda()
+
+    avg_entropy_per_cluster = np.zeros(len(data_clusters))
+    per_sample_entropy_per_cluster = [np.zeros(len(d)) for d in data_clusters]
+
+    for i, cluster in enumerate(tqdm.tqdm(data_clusters)):
+
+        cluster_size = len(cluster)
+
+        test_batch_size = 128
+
+        k=0
+        sample_entropies = np.zeros(cluster_size)
+
+        while k<cluster_size:
+            startind = k
+
+            if k+test_batch_size<cluster_size:
+                endind = k + test_batch_size
+            else:
+                endind = cluster_size
+
+            inp_ = cluster[startind:endind]
+
+
+            input = torch.Tensor(inp_).cuda()
+            input = input.view(-1, 3, 32, 32) #reshape for correct input to network
+            teacher_logits = teacher_model(input)
+            teacher_soft_logits = F.softmax(teacher_logits/temperature, dim=1)
+            teacher_soft_logits = teacher_soft_logits.detach().cpu().numpy()
+
+            sample_entropies[startind:endind] = stats.entropy(teacher_soft_logits.T)
+            k+=test_batch_size
+
+        avg_entropy_per_cluster[i] = np.mean(sample_entropies, axis=0)
+        per_sample_entropy_per_cluster[i] = sample_entropies
+
+    return avg_entropy_per_cluster, per_sample_entropy_per_cluster
 
 def calculate_alpha_hat(alpha, beta, n_classes, clusterwise_ber, examples_per_cluster):
     # calculate_alpha_hat(.1, .1, 10, bers, examples_per_cluster)

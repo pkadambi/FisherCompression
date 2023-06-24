@@ -48,7 +48,8 @@ class UniformQuantize(InplaceFunction):
             # max_value = float(input.view(input.size(0), -1).max(-1)[0].mean())
             max_value = y.max(-1)[0].mean(-1)  # C
 
-##
+##asdf = torch.load('./SavedModels/cifar10/Resnet18/FP/Run0/resnet')
+
         ctx.noise = noise
 
         if quantize:
@@ -271,8 +272,6 @@ class QuantMeasure(nn.Module):
 
 
 class QConv2d(nn.Conv2d):
-    """docstring for QConv2d."""
-
     def __init__(self, in_channels, out_channels, kernel_size, is_quantized,
                  stride=1, padding=0, dilation=1, groups=1, bias=True, num_bits_act=8,
                  num_bits_weight=8, biprecision=False, noise=None, quant_input=True):
@@ -300,14 +299,12 @@ class QConv2d(nn.Conv2d):
             else:
                 self.register_buffer('running_min', self.weight.min())
 
-
             self.q_max = None
             if FLAGS.q_max is not None:
                 self.q_max = FLAGS.q_max
                 self.register_buffer('running_max', torch.tensor(FLAGS.q_max))
             else:
                 self.register_buffer('running_max', self.weight.min())
-
 
         # if FLAGS.q_max is None and FLAGS.n_bits_wt<=2:
         #     self.max_value=1
@@ -344,7 +341,6 @@ class QConv2d(nn.Conv2d):
                 self.running_max = self.weight.max()
 
 
-
             if self.quant_inp:
                 if self.num_bits_act<4 and USING_RELU:
                     qinput =  quantize(input, num_bits=self.num_bits_act,
@@ -358,9 +354,6 @@ class QConv2d(nn.Conv2d):
                     qinput = input
             else:
                 qinput = input
-
-
-
 
             # self.weight.data.clamp(self.min_value.detach().cpu().numpy(), self.max_value.detach().cpu().numpy())
             # self.weight.data = tensor_clamp(self.weight, self.min_value, self.max_value)
@@ -393,7 +386,6 @@ class QConv2d(nn.Conv2d):
 
             if FLAGS.q_min is not None:
                 self.weight.clamp(FLAGS.q_min, FLAGS.q_max)
-
 
         else:
 

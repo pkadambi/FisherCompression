@@ -74,7 +74,6 @@ class Lenet5PTQ(nn.Module):
 
     def freeze_unfreeze_layers(self, layers_to_freeze, mode):
         '''
-
         :param layers_to_freeze:
         :param mode:
         :return:

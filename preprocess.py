@@ -150,7 +150,7 @@ def get_transform(name='imagenet', input_size=None,
         if augment:
             return transforms.Compose([
                 transforms.RandomHorizontalFlip(),
-                transforms.RandomRotation(degrees=(-10, 10), fill=(0,)),
+                transforms.RandomRotation(degrees=(-10, 10)),
                 transforms.ToTensor(),
                 # transforms.Normalize()
             ])

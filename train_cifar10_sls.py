@@ -82,7 +82,6 @@ dataset='cifar10'
 train_data = get_dataset(name = dataset, split = 'train', transform=get_transform(name=dataset, augment=True))
 test_data = get_dataset(name = dataset, split = 'test', transform=get_transform(name=dataset, augment=False))
 
-
 npdata = np.vstack([tr[0].numpy().reshape(1,-1) for tr in train_data])
 labels = np.array([tr[1] for tr in train_data])
 
@@ -111,66 +110,47 @@ test_loader = torch.utils.data.DataLoader(test_data, batch_size=FLAGS.batch_size
                                           num_workers=4, pin_memory=True)
 
 criterion = nn.CrossEntropyLoss()
-# test_loss, test_acc = test_model(test_loader, teacher_model, criterion, printing=False, eta=0.)
-# print('\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc))
-
-def compute_entropy_for_clusters(data_clusters, teacher_model, temperature):
-
-    #loop through clusters
-
-    teacher_model.eval()
-    teacher_model.cuda()
-
-    avg_entropy_per_cluster = np.zeros(len(data_clusters))
-    per_sample_entropy_per_cluster = [np.zeros(len(d)) for d in data_clusters]
-
-    for i, cluster in enumerate(tqdm.tqdm(data_clusters)):
-
-        cluster_size = len(cluster)
-
-        test_batch_size = 128
-
-        k=0
-        sample_entropies = np.zeros(cluster_size)
-
-        while k<cluster_size:
-            startind = k
-
-            if k+test_batch_size<cluster_size:
-                endind = k + test_batch_size
-            else:
-                endind = cluster_size
-
-            inp_ = cluster[startind:endind]
+test_loss, test_acc = test_model(test_loader, teacher_model, criterion, printing=False, eta=0.)
+print('\nRestored TEACHER MODEL Test Acc:\t%.3f' % (test_acc))
 
 
-            input = torch.Tensor(inp_).cuda()
-            input = input.view(-1, 3, 32, 32) #reshape for correct input to network
-            teacher_logits = teacher_model(input)
-            teacher_soft_logits = F.softmax(teacher_logits/temperature, dim=1)
-            teacher_soft_logits = teacher_soft_logits.detach().cpu().numpy()
-
-            sample_entropies[startind:endind] = stats.entropy(teacher_soft_logits.T)
-            k+=test_batch_size
-
-        avg_entropy_per_cluster[i] = np.mean(sample_entropies, axis=0)
-        per_sample_entropy_per_cluster[i] = sample_entropies
-
-    return avg_entropy_per_cluster, per_sample_entropy_per_cluster
 
 clustered_data, clustered_labels = split_data_into_clusters(npdata, labels, cluster_memberships)
 
-avg_entropy, sample_entropies = compute_entropy_for_clusters(clustered_data, teacher_model, temperature=4.)
+avg_entropy, sample_entropies = compute_entropy_for_clusters(clustered_data, teacher_model, temperature=10.)
 
-nclusters = 20
-plt.figure(1)
+nclusters = 64
+plt.figure()
 plt.hist([np.median(sample_entropies[i]) for i in range(nclusters)])
+# plt.title('Median Soft Label Entropy Based on Weizhis clusters')
 plt.title('Median Soft Label Entropy Based on Weizhis clusters')
-plt.figure(2)
 
-for i in range(len(sample_entropies)):
-    plt.hist(sample_entropies[i], bins=15)
+plt.figure()
+for ii in range(len(sample_entropies)):
+    plt.hist(np.log(sample_entropies[ii]), bins=15)
 plt.title('Soft Label Entropy Based on Weizhis clusters')
+
+def compute_error_for_each_cluster(model, cluster_data, cluster_labels):
+
+    cluster_accuracies = []
+    for ii, (xcluster, ycluster) in enumerate(zip(cluster_data, cluster_labels)):
+        with torch.no_grad():
+            input = torch.Tensor(xcluster).cuda()
+            input = input.view(-1, 3, 32, 32)  # reshape for correct input to network
+            targets = torch.Tensor([ycluster]).cuda()
+            teacher_logits = model(input)
+            teacher_soft_logits = F.softmax(teacher_logits, dim=1)
+            predictions = teacher_soft_logits.detach().cpu().numpy()
+            # preds = predictions.argmax(axis=1)
+            print(teacher_logits.shape)
+            print(targets.shape)
+            print(ii)
+            _accuracy = 100 * sum(predictions.argmax(axis=1)==ycluster)/len(ycluster)
+            cluster_accuracies.append(_accuracy)
+
+    return cluster_accuracies
+
+
 
 
 '''
@@ -185,25 +165,47 @@ import pickle as pkl
 from sklearn.mixture import GaussianMixture
 from sklearn.decomposition import PCA
 pca = PCA(n_components=256)
-pca = pkl.load(open('./cifar10_pca', 'rb'))
+if not os.path.exists('./cifar10_pca'):
+    print('Fitting PCA...')
+    pca.fit(npdata)
+    pkl.dump(pca, open('./cifar10_pca', 'wb'))
+else:
+    pca = pkl.load(open('./cifar10_pca', 'rb'))
 data_reduc = pca.transform(npdata)
+
 gmm = GaussianMixture(n_components=nclusters)
-gmm = pkl.load(open('./cifar10_gmm20', 'rb'))
+if not os.path.exists('./cifar10_gmm64'):
+    print('Fitting GMM...')
+    gmm.fit(data_reduc)
+    pkl.dump(gmm, open('./cifar10_gmm64', 'wb'))
+else:
+    gmm = pkl.load(open('./cifar10_gmm64', 'rb'))
 cluster_membership = gmm.predict(data_reduc)
 
-clustered_data, clustered_labels = split_data_into_clusters(npdata, labels, cluster_membership)
-clustered_data_reduc, clustered_labels = split_data_into_clusters(data_reduc, labels, cluster_membership)
-avg_entropy, sample_entropies = compute_entropy_for_clusters(clustered_data, teacher_model, temperature=4.)
+myclustered_data, myclustered_labels = split_data_into_clusters(npdata, labels, cluster_membership)
+clustered_data_reduc, _clustered_labels = split_data_into_clusters(data_reduc, labels, cluster_membership)
+myavg_entropy, mysample_entropies = compute_entropy_for_clusters(myclustered_data, teacher_model, temperature=10.)
 
-clustered_data_reduc = [pca.transform(cluster) for cluster in clustered_data]
+clustered_data_reduc = [pca.transform(cluster) for cluster in myclustered_data]
 # dijs= pkl.load(open('./cifar10_pca256_gmm64_dij_matrix', 'rb'))
 # dijs = dijs['dijs']
-dijs=[compute_delta_ijs(data_,labels_, n_classes=10) for data_, labels_ in zip(clustered_data_reduc, clustered_labels)]
+dijs=[compute_delta_ijs(data_,labels_, n_classes=10) for data_, labels_ in zip(clustered_data_reduc, myclustered_labels)]
 examples_per_cluster = [len(d) for d in clustered_data]
 bers = [ber_from_delta_ij(dij, n_classes=10) for dij in dijs]
 alpha_hat = calculate_alpha_hat(.2, .1, 10, bers, examples_per_cluster)
 
+mycluster_accuracies = compute_error_for_each_cluster(model=teacher_model,
+                                                    cluster_data=myclustered_data,
+                                                    cluster_labels=myclustered_labels)
+pdb.set_trace()
+plt.figure()
+plt.scatter(bers, mycluster_accuracies)
+plt.title('BER Estimate vs Train Accuracy on Cluster')
+plt.grid()
 
+cluster_accuracies = compute_error_for_each_cluster(model=teacher_model,
+                                                    cluster_data=clustered_data,
+                                                    cluster_labels=clustered_labels)
 def bayesian_information_criterion():
 
     n_clusters = np.arange(2, 20)
@@ -247,24 +249,32 @@ def bayesian_information_criterion():
     plt.show()
 
 # pdb.set_trace()
-plt.figure(3)
+plt.figure()
 plt.hist([np.median(sample_entropies[i]) for i in range(nclusters)])
-plt.title('Median entropy my clusters')
+plt.title('Median Entropy Per Cluster ')
+plt.title('Median Entropy Per Cluster ')
 
-plt.figure(4)
-for i in range(len(sample_entropies)):
-    plt.hist(sample_entropies[i], bins=15)
-plt.title('Avg entropy based on my clusters')
+plt.figure()
+for ii in range(len(mysample_entropies)):
+    plt.hist(np.log(mysample_entropies[ii]), bins=15)
+# plt.title('Avg entropy based on my clusters')
+plt.title('Per-Sample Entropy Histogram')
 
-plt.figure(5)
+plt.figure()
 plt.scatter(bers, alpha_hat, marker='o')
 
-
-
+plt.figure()
+plt.scatter([np.median(sample_entropies[i]) for i in range(len(sample_entropies))],
+            [np.median(mysample_entropies[i]) for i in range(len(mysample_entropies))])
+plt.title('PCA-GMM Clusters vs Autoencoder Clusters')
+plt.xlabel('Median Sample Entropy for Clustering using Autoencoder')
+plt.ylabel('Median Sample Entropy for Clustering using PCA-GMM')
+plt.grid(True)
 
 plt.figure()
 plt.hist(alphahats1, alpha=.5)
 plt.hist(calculate_alpha_hat(.1, .1, 10, bers, examples_per_cluster), alpha=.5)
+# plt.title('Alpha Hats ')
 plt.show()
 
 print()
